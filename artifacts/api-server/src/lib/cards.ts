@@ -1,0 +1,1003 @@
+import { createCanvas, loadImage, GlobalFonts, type SKRSContext2D } from "@napi-rs/canvas";
+
+GlobalFonts.registerFromPath("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "DejaVu");
+GlobalFonts.registerFromPath("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "DejaVu");
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+async function fetchAvatar(url: string | null | undefined, size = 256): Promise<Buffer | null> {
+  if (!url) return null;
+  try {
+    // Strip existing query params, force PNG (napi-rs/canvas handles PNG/JPEG best)
+    let base = url.split("?")[0];
+    if (/\.(webp|gif)$/i.test(base)) base = base.replace(/\.(webp|gif)$/i, ".png");
+    const res = await fetch(`${base}?size=${size}`);
+    if (!res.ok) return null;
+    return Buffer.from(await res.arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
+function drawStar(ctx: SKRSContext2D, cx: number, cy: number, spikes: number, outerR: number, innerR: number) {
+  let rot = (Math.PI / 2) * 3;
+  const step = Math.PI / spikes;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - outerR);
+  for (let i = 0; i < spikes; i++) {
+    ctx.lineTo(cx + Math.cos(rot) * outerR, cy + Math.sin(rot) * outerR);
+    rot += step;
+    ctx.lineTo(cx + Math.cos(rot) * innerR, cy + Math.sin(rot) * innerR);
+    rot += step;
+  }
+  ctx.lineTo(cx, cy - outerR);
+  ctx.closePath();
+}
+
+function roundedRect(ctx: SKRSContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.arcTo(x + w, y, x + w, y + r, r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+  ctx.lineTo(x + r, y + h);
+  ctx.arcTo(x, y + h, x, y + h - r, r);
+  ctx.lineTo(x, y + r);
+  ctx.arcTo(x, y, x + r, y, r);
+  ctx.closePath();
+}
+
+function truncate(str: string, max: number): string {
+  return str.length > max ? str.slice(0, max - 1) + "…" : str;
+}
+
+// cx/cy = center of avatar circle
+async function drawAvatar(
+  ctx: SKRSContext2D,
+  url: string | null | undefined,
+  cx: number,
+  cy: number,
+  r: number,
+  glowColor: string,
+  ringColor: string,
+  fallbackLetter = "?"
+) {
+  // Soft outer glow
+  ctx.save();
+  const glowGrad = ctx.createRadialGradient(cx, cy, r * 0.7, cx, cy, r + 18);
+  glowGrad.addColorStop(0, glowColor + "55");
+  glowGrad.addColorStop(1, "transparent");
+  ctx.fillStyle = glowGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r + 18, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // Gradient ring
+  const ringGrad = ctx.createLinearGradient(cx - r - 6, cy - r - 6, cx + r + 6, cy + r + 6);
+  ringGrad.addColorStop(0, ringColor);
+  ringGrad.addColorStop(0.5, "#ffffff99");
+  ringGrad.addColorStop(1, ringColor);
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r + 5, 0, Math.PI * 2);
+  ctx.fillStyle = ringGrad;
+  ctx.shadowBlur = 14;
+  ctx.shadowColor = ringColor;
+  ctx.fill();
+  ctx.restore();
+
+  // Dark inner ring gap
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r + 1, 0, Math.PI * 2);
+  ctx.fillStyle = "#08080f";
+  ctx.fill();
+  ctx.restore();
+
+  // Avatar image clipped to circle
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.closePath();
+  ctx.clip();
+
+  let drawn = false;
+  if (url) {
+    const buf = await fetchAvatar(url, r * 4);
+    if (buf) {
+      try {
+        const img = await loadImage(buf);
+        ctx.drawImage(img, cx - r, cy - r, r * 2, r * 2);
+        drawn = true;
+      } catch { /* fallback */ }
+    }
+  }
+
+  if (!drawn) {
+    const fbGrad = ctx.createRadialGradient(cx, cy - r * 0.2, 0, cx, cy, r);
+    fbGrad.addColorStop(0, ringColor + "99");
+    fbGrad.addColorStop(1, "#111122");
+    ctx.fillStyle = fbGrad;
+    ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+  }
+  ctx.restore();
+
+  // Fallback letter
+  if (!drawn) {
+    ctx.save();
+    ctx.font = `bold ${Math.round(r * 0.75)}px "DejaVu"`;
+    ctx.fillStyle = "#ffffff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = ringColor;
+    ctx.fillText((fallbackLetter[0] ?? "?").toUpperCase(), cx, cy);
+    ctx.restore();
+  }
+}
+
+// ─── Love percentage ──────────────────────────────────────────────────────────
+
+export function calculateLovePercentage(id1: string, id2: string): number {
+  const combined = [id1, id2].sort().join("");
+  let h = 5381;
+  for (let i = 0; i < combined.length; i++) {
+    h = ((h << 5) + h) ^ combined.charCodeAt(i);
+    h = h >>> 0;
+  }
+  return h % 101;
+}
+
+export type CardUser = { id: string; username: string; avatarUrl?: string | null };
+
+// ─── Ship card ────────────────────────────────────────────────────────────────
+
+export async function generateShipCard(user1: CardUser, user2: CardUser, percentage: number): Promise<Buffer> {
+  const W = 800, H = 310;
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext("2d");
+
+  // Rich dark purple/pink background
+  const bg = ctx.createLinearGradient(0, 0, W, H);
+  bg.addColorStop(0, "#0d0521");
+  bg.addColorStop(0.35, "#1e073d");
+  bg.addColorStop(0.65, "#2d0a3a");
+  bg.addColorStop(1, "#0a0d21");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Center radial glow
+  const cg = ctx.createRadialGradient(W / 2, H / 2, 20, W / 2, H / 2, 220);
+  cg.addColorStop(0, "rgba(233,30,99,0.18)");
+  cg.addColorStop(1, "transparent");
+  ctx.fillStyle = cg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Star field
+  for (let i = 0; i < 90; i++) {
+    const sx = (i * 137.5 + 17) % W;
+    const sy = (i * 89.1 + 31) % H;
+    ctx.save();
+    ctx.globalAlpha = 0.12 + (i % 5) * 0.06;
+    ctx.fillStyle = i % 5 === 0 ? "#ff80ab" : "#ffffff";
+    ctx.beginPath();
+    ctx.arc(sx, sy, i % 7 === 0 ? 1.5 : 0.7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Decorative sparkle stars
+  const sparks: [number, number, number][] = [[65, 45, 6], [735, 255, 5], [125, 255, 4], [675, 52, 5], [400, 22, 7]];
+  for (const [sx, sy, sr] of sparks) {
+    ctx.save();
+    ctx.fillStyle = "#ff80ab";
+    ctx.globalAlpha = 0.55;
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = "#e91e63";
+    drawStar(ctx, sx, sy, 4, sr, sr * 0.4);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Title
+  ctx.save();
+  ctx.font = `bold 13px "DejaVu"`;
+  ctx.fillStyle = "rgba(255,255,255,0.28)";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillText("S  H  I  P  P  I  N  G", W / 2, 16);
+  ctx.restore();
+
+  // Top decorative line
+  const lineGrad = ctx.createLinearGradient(100, 0, W - 100, 0);
+  lineGrad.addColorStop(0, "transparent");
+  lineGrad.addColorStop(0.5, "#e91e6355");
+  lineGrad.addColorStop(1, "transparent");
+  ctx.save();
+  ctx.strokeStyle = lineGrad;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(100, 38);
+  ctx.lineTo(W - 100, 38);
+  ctx.stroke();
+  ctx.restore();
+
+  const AV_R = 72;
+  const avCY = 160;
+
+  await drawAvatar(ctx, user1.avatarUrl, 135, avCY, AV_R, "#e91e63", "#ff4081", user1.username[0]);
+  await drawAvatar(ctx, user2.avatarUrl, W - 135, avCY, AV_R, "#e91e63", "#ff4081", user2.username[0]);
+
+  // Dashed connector line
+  ctx.save();
+  ctx.strokeStyle = "rgba(233,30,99,0.2)";
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6, 7]);
+  ctx.beginPath();
+  ctx.moveTo(135 + AV_R + 10, avCY);
+  ctx.lineTo(W - 135 - AV_R - 10, avCY);
+  ctx.stroke();
+  ctx.restore();
+
+  // Percentage
+  const pctColor = percentage >= 80 ? "#ff4081" : percentage >= 50 ? "#e91e63" : percentage >= 25 ? "#ab47bc" : "#7986cb";
+  ctx.save();
+  ctx.font = `bold 52px "DejaVu"`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.shadowBlur = 24;
+  ctx.shadowColor = pctColor;
+  const pctGrad = ctx.createLinearGradient(W / 2 - 70, avCY - 50, W / 2 + 70, avCY);
+  pctGrad.addColorStop(0, "#ffffff");
+  pctGrad.addColorStop(0.5, pctColor);
+  pctGrad.addColorStop(1, "#ff80ab");
+  ctx.fillStyle = pctGrad;
+  ctx.fillText(`${percentage}%`, W / 2, avCY - 20);
+  ctx.restore();
+
+  // Love label
+  const loveLabel =
+    percentage >= 90 ? "Soulmates!" :
+    percentage >= 70 ? "Perfect Match!" :
+    percentage >= 50 ? "Strong Chemistry" :
+    percentage >= 30 ? "Something's There..." :
+    percentage >= 10 ? "Nahi Hoga Yaar" : "Bilkul Nahi!";
+
+  ctx.save();
+  ctx.font = `bold 13px "DejaVu"`;
+  ctx.fillStyle = pctColor + "bb";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(loveLabel, W / 2, avCY + 10);
+  ctx.restore();
+
+  // Progress bar
+  const BAR_W = 240, BAR_H = 14;
+  const BAR_X = (W - BAR_W) / 2, BAR_Y = avCY + 32;
+
+  roundedRect(ctx, BAR_X, BAR_Y, BAR_W, BAR_H, BAR_H / 2);
+  ctx.fillStyle = "rgba(255,255,255,0.08)";
+  ctx.fill();
+
+  if (percentage > 0) {
+    const fillW = Math.max(BAR_W * (percentage / 100), BAR_H);
+    roundedRect(ctx, BAR_X, BAR_Y, fillW, BAR_H, BAR_H / 2);
+    const barGrad = ctx.createLinearGradient(BAR_X, 0, BAR_X + fillW, 0);
+    barGrad.addColorStop(0, "#7e57c2");
+    barGrad.addColorStop(0.4, "#e91e63");
+    barGrad.addColorStop(1, "#ff4081");
+    ctx.save();
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = "#e91e63";
+    ctx.fillStyle = barGrad;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Names
+  ctx.save();
+  ctx.font = `bold 17px "DejaVu"`;
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.shadowBlur = 8;
+  ctx.shadowColor = "#e91e63";
+  ctx.fillText(truncate(user1.username, 13), 135, avCY + AV_R + 14);
+  ctx.fillText(truncate(user2.username, 13), W - 135, avCY + AV_R + 14);
+  ctx.restore();
+
+  // Bottom line
+  ctx.save();
+  ctx.strokeStyle = lineGrad;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(100, H - 22);
+  ctx.lineTo(W - 100, H - 22);
+  ctx.stroke();
+  ctx.restore();
+
+  return canvas.toBuffer("image/png");
+}
+
+// ─── Marriage card ────────────────────────────────────────────────────────────
+
+export async function generateMarriageCard(user1: CardUser, user2: CardUser, marriedAt: Date): Promise<Buffer> {
+  const W = 800, H = 370;
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext("2d");
+
+  // Deep crimson/gold background
+  const bg = ctx.createLinearGradient(0, 0, W, H);
+  bg.addColorStop(0, "#120308");
+  bg.addColorStop(0.3, "#240a10");
+  bg.addColorStop(0.6, "#1e0808");
+  bg.addColorStop(1, "#0e0205");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Gold glow corners
+  for (const [gx, gy] of [[0, 0], [W, 0], [0, H], [W, H]] as [number, number][]) {
+    const cg = ctx.createRadialGradient(gx, gy, 0, gx, gy, 260);
+    cg.addColorStop(0, "rgba(255,215,0,0.10)");
+    cg.addColorStop(1, "transparent");
+    ctx.fillStyle = cg;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // Gold shimmer particles
+  for (let i = 0; i < 110; i++) {
+    const sx = (i * 211.3 + 50) % W;
+    const sy = (i * 97.7 + 20) % H;
+    ctx.save();
+    ctx.globalAlpha = 0.08 + (i % 5) * 0.04;
+    ctx.fillStyle = i % 3 === 0 ? "#ffd700" : i % 3 === 1 ? "#ffec8b" : "#fff8dc";
+    ctx.beginPath();
+    ctx.arc(sx, sy, i % 7 === 0 ? 1.8 : 0.8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Outer double border
+  const borderGrad = ctx.createLinearGradient(0, 0, W, H);
+  borderGrad.addColorStop(0, "#ffd700");
+  borderGrad.addColorStop(0.25, "#ffec8b");
+  borderGrad.addColorStop(0.5, "#daa520");
+  borderGrad.addColorStop(0.75, "#ffec8b");
+  borderGrad.addColorStop(1, "#ffd700");
+
+  ctx.save();
+  roundedRect(ctx, 7, 7, W - 14, H - 14, 18);
+  ctx.strokeStyle = borderGrad;
+  ctx.lineWidth = 3;
+  ctx.shadowBlur = 16;
+  ctx.shadowColor = "#ffd700";
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.save();
+  roundedRect(ctx, 13, 13, W - 26, H - 26, 14);
+  ctx.strokeStyle = "#ffd70030";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+
+  // Corner ornaments
+  const corners: [number, number][] = [[32, 32], [W - 32, 32], [32, H - 32], [W - 32, H - 32]];
+  for (const [cx, cy] of corners) {
+    ctx.save();
+    ctx.fillStyle = "#ffd700";
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = "#ffd700";
+    drawStar(ctx, cx, cy, 4, 9, 4);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Title
+  const titleGrad = ctx.createLinearGradient(W / 2 - 220, 0, W / 2 + 220, 0);
+  titleGrad.addColorStop(0, "#b8860b");
+  titleGrad.addColorStop(0.3, "#ffd700");
+  titleGrad.addColorStop(0.6, "#ffec8b");
+  titleGrad.addColorStop(1, "#b8860b");
+  ctx.save();
+  ctx.font = `bold 28px "DejaVu"`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.shadowBlur = 18;
+  ctx.shadowColor = "#ffd700";
+  ctx.fillStyle = titleGrad;
+  ctx.fillText("MARRIAGE CERTIFICATE", W / 2, 28);
+  ctx.restore();
+
+  // Subtitle tagline
+  ctx.save();
+  ctx.font = `13px "DejaVu"`;
+  ctx.fillStyle = "rgba(255,215,0,0.45)";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillText("Forever & Always", W / 2, 62);
+  ctx.restore();
+
+  // Separator
+  const sep = ctx.createLinearGradient(80, 0, W - 80, 0);
+  sep.addColorStop(0, "transparent");
+  sep.addColorStop(0.5, "#ffd70055");
+  sep.addColorStop(1, "transparent");
+  ctx.save();
+  ctx.strokeStyle = sep;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(80, 86);
+  ctx.lineTo(W - 80, 86);
+  ctx.stroke();
+  ctx.restore();
+
+  const AV_R = 82;
+  const avCY = 186;
+
+  await drawAvatar(ctx, user1.avatarUrl, 165, avCY, AV_R, "#ffd700", "#ffec8b", user1.username[0]);
+  await drawAvatar(ctx, user2.avatarUrl, W - 165, avCY, AV_R, "#ffd700", "#ffec8b", user2.username[0]);
+
+  // Center heart
+  ctx.save();
+  ctx.font = `bold 44px "DejaVu"`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.shadowBlur = 28;
+  ctx.shadowColor = "#e91e63";
+  const hGrad = ctx.createLinearGradient(W / 2 - 30, avCY - 30, W / 2 + 30, avCY + 30);
+  hGrad.addColorStop(0, "#ff80ab");
+  hGrad.addColorStop(0.5, "#e91e63");
+  hGrad.addColorStop(1, "#ad1457");
+  ctx.fillStyle = hGrad;
+  ctx.fillText("♥", W / 2, avCY - 14);
+  ctx.restore();
+
+  // "&" under heart
+  ctx.save();
+  ctx.font = `bold 20px "DejaVu"`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "rgba(255,215,0,0.55)";
+  ctx.fillText("&", W / 2, avCY + 22);
+  ctx.restore();
+
+  // Names
+  const nameGrad = ctx.createLinearGradient(0, 0, W, 0);
+  nameGrad.addColorStop(0, "#ffffff");
+  nameGrad.addColorStop(0.5, "#ffec8b");
+  nameGrad.addColorStop(1, "#ffffff");
+  ctx.save();
+  ctx.font = `bold 18px "DejaVu"`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.shadowBlur = 10;
+  ctx.shadowColor = "#ffd700";
+  ctx.fillStyle = nameGrad;
+  ctx.fillText(truncate(user1.username, 14), 165, avCY + AV_R + 14);
+  ctx.fillText(truncate(user2.username, 14), W - 165, avCY + AV_R + 14);
+  ctx.restore();
+
+  // Bottom separator
+  ctx.save();
+  ctx.strokeStyle = sep;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(80, H - 54);
+  ctx.lineTo(W - 80, H - 54);
+  ctx.stroke();
+  ctx.restore();
+
+  // Date
+  const dateStr = marriedAt.toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
+  ctx.save();
+  ctx.font = `15px "DejaVu"`;
+  ctx.fillStyle = "rgba(255,215,0,0.50)";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "bottom";
+  ctx.fillText(`United on ${dateStr}`, W / 2, H - 22);
+  ctx.restore();
+
+  return canvas.toBuffer("image/png");
+}
+
+// ─── Adopt card ───────────────────────────────────────────────────────────────
+
+export async function generateAdoptCard(parent: CardUser, child: CardUser): Promise<Buffer> {
+  const W = 800, H = 310;
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext("2d");
+
+  // Deep emerald background
+  const bg = ctx.createLinearGradient(0, 0, W, H);
+  bg.addColorStop(0, "#030f07");
+  bg.addColorStop(0.4, "#071e0e");
+  bg.addColorStop(0.7, "#051408");
+  bg.addColorStop(1, "#021005");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Center radial glow
+  const cg = ctx.createRadialGradient(W / 2, H / 2, 20, W / 2, H / 2, 230);
+  cg.addColorStop(0, "rgba(67,181,129,0.14)");
+  cg.addColorStop(1, "transparent");
+  ctx.fillStyle = cg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Sparkle particles
+  for (let i = 0; i < 90; i++) {
+    const sx = (i * 173.1 + 40) % W;
+    const sy = (i * 113.7 + 20) % H;
+    ctx.save();
+    ctx.globalAlpha = 0.10 + (i % 4) * 0.05;
+    ctx.fillStyle = i % 3 === 0 ? "#43b581" : i % 3 === 1 ? "#ffd700" : "#7effd4";
+    ctx.beginPath();
+    ctx.arc(sx, sy, i % 6 === 0 ? 1.4 : 0.7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Ornate border
+  const borderGrad = ctx.createLinearGradient(0, 0, W, H);
+  borderGrad.addColorStop(0, "#43b581");
+  borderGrad.addColorStop(0.3, "#7effd4");
+  borderGrad.addColorStop(0.6, "#2ecc71");
+  borderGrad.addColorStop(1, "#43b581");
+  ctx.save();
+  roundedRect(ctx, 7, 7, W - 14, H - 14, 18);
+  ctx.strokeStyle = borderGrad;
+  ctx.lineWidth = 2.5;
+  ctx.shadowBlur = 14;
+  ctx.shadowColor = "#43b581";
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.save();
+  roundedRect(ctx, 13, 13, W - 26, H - 26, 13);
+  ctx.strokeStyle = "#43b58128";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+
+  // Corner stars
+  const corners: [number, number][] = [[30, 30], [W - 30, 30], [30, H - 30], [W - 30, H - 30]];
+  for (const [cx, cy] of corners) {
+    ctx.save();
+    ctx.fillStyle = "#43b581";
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = "#43b581";
+    drawStar(ctx, cx, cy, 4, 7.5, 3.2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Title
+  const titleGrad = ctx.createLinearGradient(W / 2 - 200, 0, W / 2 + 200, 0);
+  titleGrad.addColorStop(0, "#2ecc71");
+  titleGrad.addColorStop(0.4, "#7effd4");
+  titleGrad.addColorStop(0.6, "#43b581");
+  titleGrad.addColorStop(1, "#2ecc71");
+  ctx.save();
+  ctx.font = `bold 26px "DejaVu"`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.shadowBlur = 14;
+  ctx.shadowColor = "#43b581";
+  ctx.fillStyle = titleGrad;
+  ctx.fillText("ADOPTION CERTIFICATE", W / 2, 24);
+  ctx.restore();
+
+  ctx.save();
+  ctx.font = `13px "DejaVu"`;
+  ctx.fillStyle = "rgba(67,181,129,0.45)";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillText("Welcome to the Family!", W / 2, 58);
+  ctx.restore();
+
+  // Separator
+  const sep = ctx.createLinearGradient(80, 0, W - 80, 0);
+  sep.addColorStop(0, "transparent");
+  sep.addColorStop(0.5, "#43b58150");
+  sep.addColorStop(1, "transparent");
+  ctx.save();
+  ctx.strokeStyle = sep;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(80, 82);
+  ctx.lineTo(W - 80, 82);
+  ctx.stroke();
+  ctx.restore();
+
+  const AV_R = 74;
+  const avCY = 178;
+
+  // Role badges
+  const drawBadge = (label: string, bx: number, by: number, color: string) => {
+    const bw = 70, bh = 20;
+    ctx.save();
+    roundedRect(ctx, bx - bw / 2, by, bw, bh, 10);
+    ctx.fillStyle = color + "22";
+    ctx.fill();
+    ctx.strokeStyle = color + "66";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+    ctx.save();
+    ctx.font = `bold 11px "DejaVu"`;
+    ctx.fillStyle = color;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.shadowBlur = 5;
+    ctx.shadowColor = color;
+    ctx.fillText(label, bx, by + 10);
+    ctx.restore();
+  };
+
+  drawBadge("PARENT", 155, avCY - AV_R - 28, "#43b581");
+  drawBadge("CHILD", W - 155, avCY - AV_R - 28, "#ffd700");
+
+  await drawAvatar(ctx, parent.avatarUrl, 155, avCY, AV_R, "#43b581", "#7effd4", parent.username[0]);
+  await drawAvatar(ctx, child.avatarUrl, W - 155, avCY, AV_R, "#ffd700", "#ffec8b", child.username[0]);
+
+  // Dashed connector
+  ctx.save();
+  ctx.strokeStyle = "rgba(67,181,129,0.22)";
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([5, 6]);
+  ctx.beginPath();
+  ctx.moveTo(155 + AV_R + 10, avCY);
+  ctx.lineTo(W - 155 - AV_R - 10, avCY);
+  ctx.stroke();
+  ctx.restore();
+
+  // Center home icon text
+  ctx.save();
+  ctx.font = `bold 26px "DejaVu"`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.shadowBlur = 16;
+  ctx.shadowColor = "#43b581";
+  const hGrad = ctx.createLinearGradient(W / 2 - 30, avCY - 20, W / 2 + 30, avCY + 20);
+  hGrad.addColorStop(0, "#7effd4");
+  hGrad.addColorStop(0.5, "#43b581");
+  hGrad.addColorStop(1, "#2ecc71");
+  ctx.fillStyle = hGrad;
+  ctx.fillText("HOME", W / 2, avCY - 12);
+  ctx.restore();
+  ctx.save();
+  ctx.font = `14px "DejaVu"`;
+  ctx.fillStyle = "rgba(67,181,129,0.55)";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("SWEET", W / 2, avCY + 14);
+  ctx.restore();
+
+  // Names
+  ctx.save();
+  ctx.font = `bold 17px "DejaVu"`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.shadowBlur = 8;
+  ctx.shadowColor = "#43b581";
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(truncate(parent.username, 13), 155, avCY + AV_R + 14);
+  ctx.restore();
+  ctx.save();
+  ctx.font = `bold 17px "DejaVu"`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.shadowBlur = 8;
+  ctx.shadowColor = "#ffd700";
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(truncate(child.username, 13), W - 155, avCY + AV_R + 14);
+  ctx.restore();
+
+  // Bottom line
+  ctx.save();
+  ctx.strokeStyle = sep;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(80, H - 22);
+  ctx.lineTo(W - 80, H - 22);
+  ctx.stroke();
+  ctx.restore();
+
+  return canvas.toBuffer("image/png");
+}
+
+// ─── Family card ──────────────────────────────────────────────────────────────
+
+export async function generateFamilyCard(
+  user: CardUser,
+  parents: CardUser[],
+  spouse: CardUser | null,
+  children: CardUser[]
+): Promise<Buffer> {
+  const W = 800, H = 560;
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext("2d");
+
+  // ── Background ──────────────────────────────────────────────────────────────
+  const bg = ctx.createLinearGradient(0, 0, W, H);
+  bg.addColorStop(0, "#12062a");
+  bg.addColorStop(0.5, "#1c0b38");
+  bg.addColorStop(1, "#0e0520");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Ambient glow center
+  const ag = ctx.createRadialGradient(W / 2, H / 2, 30, W / 2, H / 2, 340);
+  ag.addColorStop(0, "rgba(155,80,210,0.14)");
+  ag.addColorStop(1, "transparent");
+  ctx.fillStyle = ag;
+  ctx.fillRect(0, 0, W, H);
+
+  // Star field
+  for (let i = 0; i < 130; i++) {
+    const sx = (i * 157.3 + 23) % W;
+    const sy = (i * 93.7 + 11) % H;
+    ctx.save();
+    ctx.globalAlpha = 0.05 + (i % 7) * 0.025;
+    ctx.fillStyle = i % 6 === 0 ? "#ff80c0" : "#ffffff";
+    ctx.beginPath();
+    ctx.arc(sx, sy, i % 9 === 0 ? 1.1 : 0.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Card border
+  ctx.save();
+  roundedRect(ctx, 10, 10, W - 20, H - 20, 22);
+  ctx.fillStyle = "rgba(255,255,255,0.025)";
+  ctx.fill();
+  const borderG = ctx.createLinearGradient(0, 0, W, H);
+  borderG.addColorStop(0, "#9b59b6");
+  borderG.addColorStop(0.5, "#e91e63aa");
+  borderG.addColorStop(1, "#9b59b6");
+  ctx.strokeStyle = borderG;
+  ctx.lineWidth = 2.5;
+  ctx.shadowBlur = 18;
+  ctx.shadowColor = "#9b59b6";
+  ctx.stroke();
+  ctx.restore();
+
+  // ── Title ────────────────────────────────────────────────────────────────────
+  const titleG = ctx.createLinearGradient(W / 2 - 200, 0, W / 2 + 200, 0);
+  titleG.addColorStop(0, "#c084fc");
+  titleG.addColorStop(0.5, "#ffffff");
+  titleG.addColorStop(1, "#c084fc");
+  ctx.save();
+  ctx.font = `bold 23px "DejaVu"`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.shadowBlur = 16;
+  ctx.shadowColor = "#9b59b6";
+  ctx.fillStyle = titleG;
+  ctx.fillText(`${truncate(user.username, 16)}'s Family`, W / 2, 38);
+  ctx.restore();
+
+  // ── Layout constants ─────────────────────────────────────────────────────────
+  const PARENT_R = 44;
+  const PARENT_Y = 115;
+
+  // User is offset left when spouse exists
+  const USER_R = 60;
+  const USER_X = spouse ? W / 2 - 88 : W / 2;
+  const USER_Y = 295;
+
+  const SPOUSE_R = 50;
+  const SPOUSE_X = W / 2 + 92;
+  const SPOUSE_Y = 295;
+
+  const CHILD_R = 38;
+  const CHILD_Y = 462;
+
+  const PINK      = "rgba(255,110,180,0.75)";
+  const PINK_DIM  = "rgba(255,110,180,0.35)";
+  const PINK_GLOW = "#ff6eb4";
+
+  // ── Helper: draw connector line ──────────────────────────────────────────────
+  const drawConnector = (
+    x1: number, y1: number, x2: number, y2: number,
+    dashed = true, color = PINK
+  ) => {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = PINK_GLOW;
+    if (dashed) ctx.setLineDash([6, 5]);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  };
+
+  // ── Helper: draw % + heart badge on a line midpoint ──────────────────────────
+  const drawPctBadge = (mx: number, my: number, pct: number) => {
+    ctx.save();
+    // Small pill background
+    const bw = 38, bh = 18, br = 9;
+    roundedRect(ctx, mx - bw / 2, my - bh / 2, bw, bh, br);
+    ctx.fillStyle = "rgba(30,10,50,0.82)";
+    ctx.fill();
+    ctx.strokeStyle = PINK_DIM;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+    ctx.save();
+    ctx.font = `bold 10px "DejaVu"`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#ff6eb4";
+    ctx.shadowBlur = 6;
+    ctx.shadowColor = PINK_GLOW;
+    ctx.fillText(`${pct}%`, mx, my - 2);
+    ctx.restore();
+    // small heart below %
+    ctx.save();
+    ctx.font = `9px "DejaVu"`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#ff6eb4";
+    ctx.shadowBlur = 4;
+    ctx.shadowColor = PINK_GLOW;
+    ctx.fillText("\u2665", mx, my + 7);
+    ctx.restore();
+  };
+
+  // ── Helper: draw avatar + name ───────────────────────────────────────────────
+  const drawNode = async (
+    u: CardUser, cx: number, cy: number, r: number,
+    ringColor: string, glowColor: string,
+    nameColor = "#ffffff", bold = false
+  ) => {
+    await drawAvatar(ctx, u.avatarUrl, cx, cy, r, glowColor, ringColor, u.username[0]);
+    ctx.save();
+    ctx.font = `${bold ? "bold " : ""}${bold ? 13 : 12}px "DejaVu"`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillStyle = nameColor;
+    ctx.shadowBlur = bold ? 10 : 6;
+    ctx.shadowColor = ringColor;
+    ctx.fillText(truncate(u.username, bold ? 12 : 10), cx, cy + r + 7);
+    ctx.restore();
+  };
+
+  // ── Calculate parent positions ────────────────────────────────────────────────
+  const pCount = Math.min(parents.length, 4);
+  const pSpacing = pCount > 1 ? Math.min(200, 660 / (pCount - 1)) : 0;
+  const pStartX = W / 2 - pSpacing * (pCount - 1) / 2;
+  const pXs = Array.from({ length: pCount }, (_, i) => pStartX + i * pSpacing);
+
+  // ── Calculate children positions ──────────────────────────────────────────────
+  const cCount = Math.min(children.length, 6);
+  const cSpacing = cCount > 1 ? Math.min(130, 680 / (cCount - 1)) : 0;
+  const cStartX = W / 2 - cSpacing * (cCount - 1) / 2;
+  const cXs = Array.from({ length: cCount }, (_, i) => cStartX + i * cSpacing);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PASS 1 — Draw all connector lines first (behind avatars)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // ── Parent → User lines ───────────────────────────────────────────────────────
+  if (pCount > 0) {
+    const RAIL_Y = PARENT_Y + PARENT_R + 22;   // horizontal rail just below parents
+    const USER_TOP = USER_Y - USER_R - 4;
+
+    // Vertical stubs from each parent down to rail
+    for (const px of pXs) {
+      drawConnector(px, PARENT_Y + PARENT_R + 2, px, RAIL_Y, false);
+    }
+
+    // Horizontal rail connecting all parents
+    if (pCount > 1) {
+      drawConnector(pXs[0], RAIL_Y, pXs[pCount - 1], RAIL_Y, false);
+    }
+
+    // Vertical line: rail center → user top
+    const railCX = pCount === 1 ? pXs[0] : (pXs[0] + pXs[pCount - 1]) / 2;
+    drawConnector(railCX, RAIL_Y, railCX, USER_TOP, true);
+
+    // Merge point → user (if offset)
+    if (Math.abs(railCX - USER_X) > 4) {
+      drawConnector(railCX, USER_TOP, USER_X, USER_TOP, false);
+      drawConnector(USER_X, USER_TOP, USER_X, USER_Y - USER_R - 2, false);
+    }
+
+    // % badge at midpoint of vertical line
+    const midY = (RAIL_Y + USER_TOP) / 2;
+    const avgPct = Math.round(pXs.reduce((s, _, i) => s + calculateLovePercentage(user.id, parents[i].id), 0) / pCount);
+    drawPctBadge(railCX + (Math.abs(railCX - USER_X) > 4 ? 24 : 22), midY, avgPct);
+  }
+
+  // ── User ↔ Spouse line ─────────────────────────────────────────────────────
+  if (spouse) {
+    drawConnector(USER_X + USER_R + 3, USER_Y, SPOUSE_X - SPOUSE_R - 3, USER_Y, false);
+    const marriagePct = calculateLovePercentage(user.id, spouse.id);
+    drawPctBadge((USER_X + USER_R + SPOUSE_X - SPOUSE_R) / 2, USER_Y, marriagePct);
+  }
+
+  // ── User → Children lines ──────────────────────────────────────────────────
+  if (cCount > 0) {
+    const CRAIL_Y = CHILD_Y - CHILD_R - 22;
+    const USER_BOT = USER_Y + USER_R + 4;
+
+    // Vertical from user bottom to children rail
+    drawConnector(USER_X, USER_BOT, USER_X, CRAIL_Y, true);
+
+    // Merge if children rail center differs from user x
+    const crailCX = cCount === 1 ? cXs[0] : (cXs[0] + cXs[cCount - 1]) / 2;
+    if (Math.abs(crailCX - USER_X) > 4) {
+      drawConnector(USER_X, CRAIL_Y, crailCX, CRAIL_Y, false);
+    }
+
+    // Horizontal rail for children
+    if (cCount > 1) {
+      drawConnector(cXs[0], CRAIL_Y, cXs[cCount - 1], CRAIL_Y, false);
+    }
+
+    // Vertical stubs from rail to each child
+    for (let i = 0; i < cCount; i++) {
+      drawConnector(cXs[i], CRAIL_Y, cXs[i], CHILD_Y - CHILD_R - 2, true);
+      const pct = calculateLovePercentage(user.id, children[i].id);
+      drawPctBadge(cXs[i] + 22, CRAIL_Y + (CHILD_Y - CHILD_R - CRAIL_Y) / 2, pct);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PASS 2 — Draw avatars on top of lines
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // Parents
+  for (let i = 0; i < pCount; i++) {
+    await drawNode(parents[i], pXs[i], PARENT_Y, PARENT_R, "#7289da", "#5865f2");
+  }
+  if (pCount === 0) {
+    ctx.save();
+    ctx.font = `13px "DejaVu"`;
+    ctx.fillStyle = "rgba(255,255,255,0.20)";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("No parents", W / 2, PARENT_Y);
+    ctx.restore();
+  }
+
+  // User (gold ring, bold name, larger)
+  await drawNode(user, USER_X, USER_Y, USER_R, "#ffd700", "#ffb300", "#ffd700", true);
+
+  // Spouse
+  if (spouse) {
+    await drawNode(spouse, SPOUSE_X, SPOUSE_Y, SPOUSE_R, "#e91e63", "#ff4081", "#ff80ab");
+  }
+
+  // Children
+  for (let i = 0; i < cCount; i++) {
+    await drawNode(children[i], cXs[i], CHILD_Y, CHILD_R, "#43b581", "#2ecc71");
+  }
+  if (cCount === 0) {
+    ctx.save();
+    ctx.font = `13px "DejaVu"`;
+    ctx.fillStyle = "rgba(255,255,255,0.20)";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("No children", W / 2, CHILD_Y);
+    ctx.restore();
+  }
+  if (children.length > 6) {
+    ctx.save();
+    ctx.font = `11px "DejaVu"`;
+    ctx.fillStyle = "rgba(67,181,129,0.55)";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    ctx.fillText(`+${children.length - 6} more`, W / 2, H - 14);
+    ctx.restore();
+  }
+
+  return canvas.toBuffer("image/png");
+}

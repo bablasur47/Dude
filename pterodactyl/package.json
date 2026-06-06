@@ -1,0 +1,12 @@
+{
+  "name": "priya-bot",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Priya Bot — pre-built deployment package for Pterodactyl",
+  "scripts": {
+    "start": "node dist/index.mjs"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^1.0.0"
+  }
+}

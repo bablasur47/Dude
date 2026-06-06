@@ -1,0 +1,739 @@
+openapi: 3.1.0
+info:
+  title: Api
+  version: 0.1.0
+  description: Discord Bot Dashboard API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: auth
+    description: Dashboard authentication
+  - name: bot
+    description: Bot stats and info
+  - name: servers
+    description: Guild/server management
+  - name: users
+    description: User management
+  - name: apis
+    description: AI API key management
+  - name: personality
+    description: Bot personality settings
+  - name: channels
+    description: Channel NSFW settings
+  - name: portal
+    description: User self-service portal
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Owner login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginInput"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthToken"
+        "401":
+          description: Unauthorized
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current session info
+      responses:
+        "200":
+          description: Session info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionInfo"
+        "401":
+          description: Not authenticated
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout
+      responses:
+        "200":
+          description: Logged out
+
+  /bot/stats:
+    get:
+      operationId: getBotStats
+      tags: [bot]
+      summary: Get overall bot stats
+      responses:
+        "200":
+          description: Bot statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotStats"
+
+  /bot/status:
+    get:
+      operationId: getBotStatus
+      tags: [bot]
+      summary: Get bot online status
+      responses:
+        "200":
+          description: Bot status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotStatus"
+
+  /servers:
+    get:
+      operationId: getServers
+      tags: [servers]
+      summary: Get all servers the bot is in
+      responses:
+        "200":
+          description: List of servers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Server"
+
+  /servers/{guildId}:
+    get:
+      operationId: getServer
+      tags: [servers]
+      summary: Get single server details
+      parameters:
+        - in: path
+          name: guildId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Server details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerDetail"
+        "404":
+          description: Not found
+
+  /servers/{guildId}/channels/nsfw:
+    get:
+      operationId: getNsfwChannels
+      tags: [channels]
+      summary: Get NSFW-enabled channels for a server
+      parameters:
+        - in: path
+          name: guildId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: NSFW channels
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NsfwChannel"
+
+  /users:
+    get:
+      operationId: getUsers
+      tags: [users]
+      summary: Get all users the bot has interacted with
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BotUser"
+
+  /users/{userId}:
+    get:
+      operationId: getUser
+      tags: [users]
+      summary: Get user details and chat history
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotUserDetail"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteUser
+      tags: [users]
+      summary: Delete user chat history
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /apis:
+    get:
+      operationId: getApis
+      tags: [apis]
+      summary: Get all API keys (masked)
+      responses:
+        "200":
+          description: List of API configs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ApiConfig"
+    post:
+      operationId: addApi
+      tags: [apis]
+      summary: Add a new API key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiConfig"
+
+  /apis/{apiId}:
+    delete:
+      operationId: deleteApi
+      tags: [apis]
+      summary: Delete an API key
+      parameters:
+        - in: path
+          name: apiId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+    patch:
+      operationId: updateApi
+      tags: [apis]
+      summary: Update API key enabled/disabled
+      parameters:
+        - in: path
+          name: apiId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiConfig"
+
+  /auth/discord:
+    get:
+      operationId: discordAuthRedirect
+      tags: [auth]
+      summary: Initiate Discord OAuth login (redirects to Discord)
+      responses:
+        "302":
+          description: Redirect to Discord OAuth
+
+  /portal/me:
+    get:
+      operationId: getPortalMe
+      tags: [portal]
+      summary: Get current portal user profile and settings
+      responses:
+        "200":
+          description: Portal user profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PortalUser"
+        "401":
+          description: Unauthorized
+        "404":
+          description: User not found in bot database
+
+  /portal/settings:
+    patch:
+      operationId: updatePortalSettings
+      tags: [portal]
+      summary: Update personal bot interaction settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PortalSettingsInput"
+      responses:
+        "200":
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PortalUser"
+        "401":
+          description: Unauthorized
+
+  /portal/history:
+    get:
+      operationId: getPortalHistory
+      tags: [portal]
+      summary: Get own chat history across all servers
+      responses:
+        "200":
+          description: Chat history per server
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PortalHistoryEntry"
+        "401":
+          description: Unauthorized
+    delete:
+      operationId: deleteAllPortalHistory
+      tags: [portal]
+      summary: Reset all personal chat history
+      responses:
+        "200":
+          description: Cleared
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "401":
+          description: Unauthorized
+
+  /portal/history/{guildId}:
+    delete:
+      operationId: deletePortalHistoryGuild
+      tags: [portal]
+      summary: Reset chat history for a specific server
+      parameters:
+        - in: path
+          name: guildId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Cleared
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "401":
+          description: Unauthorized
+
+  /personality:
+    get:
+      operationId: getPersonality
+      tags: [personality]
+      summary: Get current personality settings
+      responses:
+        "200":
+          description: Personality config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Personality"
+    patch:
+      operationId: updatePersonality
+      tags: [personality]
+      summary: Update personality settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PersonalityUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Personality"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    LoginInput:
+      type: object
+      required: [password]
+      properties:
+        password:
+          type: string
+
+    AuthToken:
+      type: object
+      required: [success, token]
+      properties:
+        success:
+          type: boolean
+        token:
+          type: string
+
+    SessionInfo:
+      type: object
+      required: [authenticated, isOwner]
+      properties:
+        authenticated:
+          type: boolean
+        isOwner:
+          type: boolean
+
+    BotStats:
+      type: object
+      required: [totalServers, totalUsers, totalMessages, activeToday]
+      properties:
+        totalServers:
+          type: integer
+        totalUsers:
+          type: integer
+        totalMessages:
+          type: integer
+        activeToday:
+          type: integer
+        uptime:
+          type: ["integer", "null"]
+
+    BotStatus:
+      type: object
+      required: [online, username, discriminator]
+      properties:
+        online:
+          type: boolean
+        username:
+          type: string
+        discriminator:
+          type: string
+        avatarUrl:
+          type: ["string", "null"]
+        ping:
+          type: ["integer", "null"]
+
+    Server:
+      type: object
+      required: [guildId, name, memberCount, joinedAt]
+      properties:
+        guildId:
+          type: string
+        name:
+          type: string
+        iconUrl:
+          type: ["string", "null"]
+        memberCount:
+          type: integer
+        messageCount:
+          type: integer
+        joinedAt:
+          type: string
+
+    ServerDetail:
+      type: object
+      required: [guildId, name, memberCount, joinedAt, nsfwChannels, totalMessages]
+      properties:
+        guildId:
+          type: string
+        name:
+          type: string
+        iconUrl:
+          type: ["string", "null"]
+        memberCount:
+          type: integer
+        totalMessages:
+          type: integer
+        joinedAt:
+          type: string
+        nsfwChannels:
+          type: array
+          items:
+            type: string
+        activeUsers:
+          type: integer
+
+    NsfwChannel:
+      type: object
+      required: [channelId, channelName, enabled]
+      properties:
+        channelId:
+          type: string
+        channelName:
+          type: string
+        enabled:
+          type: boolean
+
+    BotUser:
+      type: object
+      required: [userId, username, messageCount, lastSeen]
+      properties:
+        userId:
+          type: string
+        username:
+          type: string
+        discriminator:
+          type: ["string", "null"]
+        avatarUrl:
+          type: ["string", "null"]
+        messageCount:
+          type: integer
+        lastSeen:
+          type: string
+        servers:
+          type: array
+          items:
+            type: string
+
+    BotUserDetail:
+      type: object
+      required: [userId, username, messageCount, lastSeen, recentMessages]
+      properties:
+        userId:
+          type: string
+        username:
+          type: string
+        discriminator:
+          type: ["string", "null"]
+        avatarUrl:
+          type: ["string", "null"]
+        messageCount:
+          type: integer
+        lastSeen:
+          type: string
+        servers:
+          type: array
+          items:
+            type: string
+        recentMessages:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChatMessage"
+
+    ChatMessage:
+      type: object
+      required: [role, content, timestamp]
+      properties:
+        role:
+          type: string
+        content:
+          type: string
+        timestamp:
+          type: string
+
+    ApiConfig:
+      type: object
+      required: [id, provider, label, maskedKey, enabled, createdAt]
+      properties:
+        id:
+          type: string
+        provider:
+          type: string
+        label:
+          type: string
+        maskedKey:
+          type: string
+        enabled:
+          type: boolean
+        createdAt:
+          type: string
+        lastUsed:
+          type: ["string", "null"]
+        errorCount:
+          type: integer
+
+    ApiInput:
+      type: object
+      required: [provider, label, key]
+      properties:
+        provider:
+          type: string
+          enum: [groq, gemini, nvidia]
+        label:
+          type: string
+        key:
+          type: string
+
+    ApiUpdate:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        label:
+          type: string
+
+    Personality:
+      type: object
+      required: [name, systemPrompt, nsfwEnabled, randomPingEnabled, greetNewMembers]
+      properties:
+        name:
+          type: string
+        systemPrompt:
+          type: string
+        nsfwEnabled:
+          type: boolean
+        randomPingEnabled:
+          type: boolean
+        greetNewMembers:
+          type: boolean
+        randomPingIntervalMinutes:
+          type: integer
+        maxHistoryDays:
+          type: integer
+        activeProvider:
+          type: string
+
+    PersonalityUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        systemPrompt:
+          type: string
+        nsfwEnabled:
+          type: boolean
+        randomPingEnabled:
+          type: boolean
+        greetNewMembers:
+          type: boolean
+        randomPingIntervalMinutes:
+          type: integer
+        maxHistoryDays:
+          type: integer
+        activeProvider:
+          type: string
+
+    SuccessResponse:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: ["string", "null"]
+
+    PortalUser:
+      type: object
+      required: [userId, username, messageCount, languageStyle]
+      properties:
+        userId:
+          type: string
+        username:
+          type: string
+        avatarUrl:
+          type: ["string", "null"]
+        messageCount:
+          type: integer
+        lastSeen:
+          type: ["string", "null"]
+        nickname:
+          type: ["string", "null"]
+        pronouns:
+          type: ["string", "null"]
+        relationshipVibe:
+          type: ["string", "null"]
+        languageStyle:
+          type: string
+
+    PortalSettingsInput:
+      type: object
+      properties:
+        nickname:
+          type: string
+        pronouns:
+          type: string
+        relationshipVibe:
+          type: string
+        languageStyle:
+          type: string
+
+    PortalHistoryEntry:
+      type: object
+      required: [guildId, guildName, messageCount, messages]
+      properties:
+        guildId:
+          type: string
+        guildName:
+          type: string
+        messageCount:
+          type: integer
+        lastMessage:
+          type: ["string", "null"]
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChatMessage"

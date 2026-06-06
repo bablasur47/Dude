@@ -1,0 +1,153 @@
+{
+  "_comment": "DO NOT EDIT — managed by Priya Bot project. Import this file in Pterodactyl: Admin → Nests → Import Egg.",
+  "meta": {
+    "version": "PTDL_v2",
+    "update_url": null
+  },
+  "exported_at": "2026-06-06T00:00:00+00:00",
+  "name": "Priya Bot",
+  "author": "priya-bot@example.com",
+  "uuid": "00000000-0000-0000-0000-priyabot00001",
+  "description": "Priya — AI Discord bot with built-in owner dashboard. Uses pre-built files — starts in seconds, no pnpm/build step needed.",
+  "features": ["eula"],
+  "docker_images": {
+    "Node.js 20": "ghcr.io/pterodactyl/yolks:nodejs_20"
+  },
+  "file_denylist": [],
+  "startup": "bash pterodactyl/start.sh",
+  "config": {
+    "files": "{}",
+    "startup": "{\"done\": \"Server listening\"}",
+    "logs": "{}",
+    "stop": "^C"
+  },
+  "scripts": {
+    "installation": {
+      "script": "#!/bin/bash\n# Pterodactyl install script for Priya Bot\n# Pre-built files are in the repo — just clone and go!\nset -e\n\napt-get update -y -q\napt-get install -y -q curl git\n\n# Clone or update the repo\nif [ -d /mnt/server/.git ]; then\n  echo \"Updating repo...\"\n  cd /mnt/server && git pull\nelse\n  echo \"Cloning repo...\"\n  git clone \"${GIT_REPO_URL}\" /mnt/server\n  cd /mnt/server\n  [ -n \"${GIT_BRANCH}\" ] && git checkout \"${GIT_BRANCH}\"\nfi\n\n# Create .env from example if missing\nif [ ! -f /mnt/server/.env ]; then\n  cp /mnt/server/.env.example /mnt/server/.env\n  echo \"\"\n  echo \"==========================================================\"\n  echo \" .env created! Edit /mnt/server/.env before starting!\"\n  echo \"==========================================================\"\nfi\n\necho \"Install complete. Edit .env then Start the server.\"",
+      "container": "ghcr.io/pterodactyl/installers:debian",
+      "entrypoint": "bash"
+    }
+  },
+  "variables": [
+    {
+      "name": "Server Port",
+      "description": "The port Pterodactyl assigns (set automatically).",
+      "env_variable": "PORT",
+      "default_value": "8080",
+      "user_viewable": true,
+      "user_editable": false,
+      "rules": "required|numeric|between:1024,65535",
+      "field_type": "text"
+    },
+    {
+      "name": "MongoDB URI",
+      "description": "MongoDB connection string. Free cluster at mongodb.com/atlas.",
+      "env_variable": "MONGODB_URI",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Discord Bot Token",
+      "description": "Token from https://discord.com/developers/applications",
+      "env_variable": "DISCORD_TOKEN",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Discord Client ID",
+      "description": "Application ID from https://discord.com/developers/applications",
+      "env_variable": "DISCORD_CLIENT_ID",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Owner Discord ID",
+      "description": "Your Discord user ID (for owner dashboard features).",
+      "env_variable": "OWNER_DISCORD_ID",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Dashboard Password",
+      "description": "Password to log into the owner dashboard.",
+      "env_variable": "DASHBOARD_SECRET",
+      "default_value": "changeme",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|min:8",
+      "field_type": "text"
+    },
+    {
+      "name": "Session Secret",
+      "description": "Random secret for JWT tokens. Generate: openssl rand -hex 32",
+      "env_variable": "SESSION_SECRET",
+      "default_value": "changeme-generate-a-real-secret",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|min:16",
+      "field_type": "text"
+    },
+    {
+      "name": "Groq API Key",
+      "description": "Optional. Free at https://console.groq.com/keys",
+      "env_variable": "GROQ_API_KEY_1",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Gemini API Key",
+      "description": "Optional. Free at https://aistudio.google.com/app/apikey",
+      "env_variable": "GEMINI_API_KEY_1",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Nvidia API Key",
+      "description": "Optional. Get at https://build.nvidia.com/",
+      "env_variable": "NVIDIA_API_KEY_1",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Git Repository URL",
+      "description": "Your GitHub/GitLab repo URL to clone during install.",
+      "env_variable": "GIT_REPO_URL",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
+      "field_type": "text"
+    },
+    {
+      "name": "Git Branch",
+      "description": "Branch to use (leave blank for default branch).",
+      "env_variable": "GIT_BRANCH",
+      "default_value": "main",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
+      "field_type": "text"
+    }
+  ]
+}

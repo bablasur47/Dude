@@ -49,15 +49,17 @@ async function saveHistory(userId: string, guildId: string, role: "user" | "assi
   );
 }
 
-async function upsertUser(member: { id: string; username: string; discriminator?: string; displayAvatarURL?: () => string }, guildId: string) {
+async function upsertUser(member: { id: string; username: string; discriminator?: string; avatarUrl?: string }, guildId: string) {
+  const setFields: Record<string, unknown> = {
+    username: member.username,
+    discriminator: member.discriminator,
+    lastSeen: new Date(),
+  };
+  if (member.avatarUrl) setFields.avatarUrl = member.avatarUrl;
   await BotUser.findOneAndUpdate(
     { userId: member.id },
     {
-      $set: {
-        username: member.username,
-        discriminator: member.discriminator,
-        lastSeen: new Date(),
-      },
+      $set: setFields,
       $inc: { messageCount: 1 },
       $addToSet: { servers: guildId },
     },
@@ -505,6 +507,7 @@ export async function initBot(): Promise<void> {
           id: message.author.id,
           username: message.author.username,
           discriminator: message.author.discriminator,
+          avatarUrl: message.author.displayAvatarURL({ size: 256, extension: "png" } as Parameters<typeof message.author.displayAvatarURL>[0]),
         },
         guildId
       );

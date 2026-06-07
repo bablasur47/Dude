@@ -152,6 +152,250 @@ export function calculateLovePercentage(id1: string, id2: string): number {
 
 export type CardUser = { id: string; username: string; avatarUrl?: string | null };
 
+// ─── Profile card ─────────────────────────────────────────────────────────────
+
+export type ProfileData = {
+  user: CardUser;
+  messageCount: number;
+  spouseName?: string | null;
+  parentsCount: number;
+  childrenCount: number;
+};
+
+export async function generateProfileCard(data: ProfileData): Promise<Buffer> {
+  const W = 820, H = 340;
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext("2d");
+
+  const { user, messageCount, spouseName, parentsCount, childrenCount } = data;
+
+  // ── Background ───────────────────────────────────────────────────────────────
+  const bg = ctx.createLinearGradient(0, 0, W, H);
+  bg.addColorStop(0, "#0e0520");
+  bg.addColorStop(0.45, "#1a0730");
+  bg.addColorStop(1, "#0b051a");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Left-side accent wash
+  const lw = ctx.createRadialGradient(140, H / 2, 10, 140, H / 2, 260);
+  lw.addColorStop(0, "rgba(155,80,210,0.20)");
+  lw.addColorStop(1, "transparent");
+  ctx.fillStyle = lw;
+  ctx.fillRect(0, 0, W, H);
+
+  // Right-side pink wash
+  const rw = ctx.createRadialGradient(W - 60, H / 2, 10, W - 60, H / 2, 280);
+  rw.addColorStop(0, "rgba(233,30,99,0.10)");
+  rw.addColorStop(1, "transparent");
+  ctx.fillStyle = rw;
+  ctx.fillRect(0, 0, W, H);
+
+  // Tiny star field
+  for (let i = 0; i < 100; i++) {
+    const sx = (i * 193.7 + 17) % W;
+    const sy = (i * 87.3 + 11) % H;
+    ctx.save();
+    ctx.globalAlpha = 0.05 + (i % 6) * 0.03;
+    ctx.fillStyle = i % 5 === 0 ? "#ff80c0" : "#ffffff";
+    ctx.beginPath();
+    ctx.arc(sx, sy, i % 9 === 0 ? 1.0 : 0.45, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // ── Outer border ─────────────────────────────────────────────────────────────
+  ctx.save();
+  roundedRect(ctx, 8, 8, W - 16, H - 16, 20);
+  const borderG = ctx.createLinearGradient(0, 0, W, H);
+  borderG.addColorStop(0, "#9b59b6");
+  borderG.addColorStop(0.5, "#e91e63aa");
+  borderG.addColorStop(1, "#9b59b6");
+  ctx.strokeStyle = borderG;
+  ctx.lineWidth = 2.5;
+  ctx.shadowBlur = 20;
+  ctx.shadowColor = "#9b59b6";
+  ctx.stroke();
+  ctx.restore();
+
+  // Inner subtle border
+  ctx.save();
+  roundedRect(ctx, 14, 14, W - 28, H - 28, 15);
+  ctx.strokeStyle = "rgba(255,255,255,0.05)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+
+  // ── Vertical divider between avatar and stats ─────────────────────────────
+  const DIV_X = 270;
+  ctx.save();
+  const divG = ctx.createLinearGradient(DIV_X, 30, DIV_X, H - 30);
+  divG.addColorStop(0, "transparent");
+  divG.addColorStop(0.3, "rgba(155,80,210,0.35)");
+  divG.addColorStop(0.7, "rgba(233,30,99,0.25)");
+  divG.addColorStop(1, "transparent");
+  ctx.strokeStyle = divG;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(DIV_X, 30);
+  ctx.lineTo(DIV_X, H - 30);
+  ctx.stroke();
+  ctx.restore();
+
+  // ── Avatar (left side) ───────────────────────────────────────────────────────
+  const AV_CX = 138, AV_CY = H / 2 - 12, AV_R = 90;
+  await drawAvatar(ctx, user.avatarUrl, AV_CX, AV_CY, AV_R, "#ffd700", "#ffb300", user.username[0]);
+
+  // ── Username below avatar ────────────────────────────────────────────────────
+  ctx.save();
+  ctx.font = `bold 15px "DejaVu"`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillStyle = "#ffffff";
+  ctx.shadowBlur = 10;
+  ctx.shadowColor = "#ffd700";
+  ctx.fillText(truncate(user.username, 16), AV_CX, AV_CY + AV_R + 10);
+  ctx.restore();
+
+  // ── "PROFILE" pill above avatar ──────────────────────────────────────────────
+  ctx.save();
+  roundedRect(ctx, AV_CX - 38, AV_CY - AV_R - 32, 76, 22, 11);
+  ctx.fillStyle = "rgba(155,80,210,0.20)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(155,80,210,0.55)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+  ctx.save();
+  ctx.font = `bold 11px "DejaVu"`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "#c084fc";
+  ctx.shadowBlur = 6;
+  ctx.shadowColor = "#9b59b6";
+  ctx.fillText("PROFILE CARD", AV_CX, AV_CY - AV_R - 21);
+  ctx.restore();
+
+  // ── Stats (right side) ───────────────────────────────────────────────────────
+  const SX = DIV_X + 30;
+  const statLineH = 48;
+  let sy = 55;
+
+  // Username header (big)
+  const nameG = ctx.createLinearGradient(SX, 0, SX + 400, 0);
+  nameG.addColorStop(0, "#ffffff");
+  nameG.addColorStop(0.6, "#e0b0ff");
+  nameG.addColorStop(1, "#ff80c0");
+  ctx.save();
+  ctx.font = `bold 28px "DejaVu"`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillStyle = nameG;
+  ctx.shadowBlur = 14;
+  ctx.shadowColor = "#9b59b6";
+  ctx.fillText(truncate(user.username, 18), SX, sy);
+  ctx.restore();
+  sy += 38;
+
+  // Thin separator under name
+  ctx.save();
+  const sepG = ctx.createLinearGradient(SX, 0, W - 30, 0);
+  sepG.addColorStop(0, "#9b59b655");
+  sepG.addColorStop(1, "transparent");
+  ctx.strokeStyle = sepG;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(SX, sy);
+  ctx.lineTo(W - 30, sy);
+  ctx.stroke();
+  ctx.restore();
+  sy += 18;
+
+  // Helper: draw one stat row
+  const drawStat = (icon: string, label: string, value: string, color: string) => {
+    // Icon pill
+    ctx.save();
+    roundedRect(ctx, SX, sy - 2, 28, 28, 8);
+    ctx.fillStyle = color + "22";
+    ctx.fill();
+    ctx.strokeStyle = color + "55";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+    ctx.save();
+    ctx.font = `16px "DejaVu"`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(icon, SX + 14, sy + 12);
+    ctx.restore();
+    // Label
+    ctx.save();
+    ctx.font = `11px "DejaVu"`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillStyle = "rgba(255,255,255,0.38)";
+    ctx.fillText(label.toUpperCase(), SX + 36, sy);
+    ctx.restore();
+    // Value
+    ctx.save();
+    ctx.font = `bold 15px "DejaVu"`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillStyle = "#ffffff";
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = color;
+    ctx.fillText(value, SX + 36, sy + 12);
+    ctx.restore();
+  };
+
+  // Messages
+  drawStat(
+    "\u{1F4AC}",
+    "Messages",
+    messageCount.toLocaleString("en-IN"),
+    "#7289da"
+  );
+  sy += statLineH;
+
+  // Relationship status
+  const relStatus = spouseName
+    ? `Married to ${truncate(spouseName, 14)}`
+    : "Single \u{1F48B}";
+  drawStat("\u{1F495}", "Status", relStatus, "#e91e63");
+  sy += statLineH;
+
+  // Family
+  const familyStr =
+    parentsCount === 0 && childrenCount === 0
+      ? "No family yet"
+      : `${parentsCount} parent${parentsCount !== 1 ? "s" : ""} \u2022 ${childrenCount} kid${childrenCount !== 1 ? "s" : ""}`;
+  drawStat("\u{1F3E0}", "Family", familyStr, "#43b581");
+  sy += statLineH;
+
+  // Decorative bottom bar
+  ctx.save();
+  const barG = ctx.createLinearGradient(SX, 0, W - 30, 0);
+  barG.addColorStop(0, "#9b59b6");
+  barG.addColorStop(0.5, "#e91e63");
+  barG.addColorStop(1, "#9b59b6");
+  roundedRect(ctx, SX, H - 36, W - SX - 22, 4, 2);
+  ctx.fillStyle = barG;
+  ctx.shadowBlur = 10;
+  ctx.shadowColor = "#e91e63";
+  ctx.fill();
+  ctx.restore();
+
+  ctx.save();
+  ctx.font = `11px "DejaVu"`;
+  ctx.textAlign = "right";
+  ctx.textBaseline = "bottom";
+  ctx.fillStyle = "rgba(255,255,255,0.22)";
+  ctx.fillText("Priya Bot", W - 28, H - 20);
+  ctx.restore();
+
+  return canvas.toBuffer("image/png");
+}
+
 // ─── Ship card ────────────────────────────────────────────────────────────────
 
 export async function generateShipCard(user1: CardUser, user2: CardUser, percentage: number): Promise<Buffer> {

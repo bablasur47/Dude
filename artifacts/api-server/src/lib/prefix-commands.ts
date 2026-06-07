@@ -15,6 +15,7 @@ import {
   generateMarriageCard,
   generateAdoptCard,
   generateFamilyCard,
+  generateProfileCard,
   type CardUser,
 } from "./cards";
 
@@ -53,13 +54,18 @@ async function getOrCreateRelationship(userId: string, guildId: string) {
 }
 
 async function resolveCardUser(userId: string, client: Client, guildId?: string): Promise<CardUser> {
+  // Try Discord first (most reliable, always up-to-date avatar)
+  const discordUser = client.users.cache.get(userId) ?? await client.users.fetch(userId).catch(() => null);
+  if (discordUser) {
+    const avatarUrl = discordUser.displayAvatarURL({ size: 256, extension: "png" });
+    // Cache in DB for any future use
+    BotUser.updateOne({ userId }, { $set: { avatarUrl, username: discordUser.username } }).catch(() => {});
+    return { id: userId, username: discordUser.username, avatarUrl };
+  }
+  // Fallback to DB record
   const dbUser = await BotUser.findOne({ userId });
   if (dbUser) {
     return { id: userId, username: dbUser.username, avatarUrl: dbUser.avatarUrl ?? null };
-  }
-  const discordUser = client.users.cache.get(userId) ?? await client.users.fetch(userId).catch(() => null);
-  if (discordUser) {
-    return { id: userId, username: discordUser.username, avatarUrl: discordUser.displayAvatarURL({ size: 256, extension: "png" }) };
   }
   return { id: userId, username: `User#${userId.slice(-4)}`, avatarUrl: null };
 }
@@ -508,6 +514,53 @@ async function handleFamily(message: Message, client: Client, args: string[]) {
   }
 }
 
+// ─── Profile command ──────────────────────────────────────────────────────────
+
+async function handleProfile(message: Message, client: Client, args: string[]): Promise<void> {
+  if (!message.guild) {
+    await message.reply("Ye command sirf server mein use hoti hai!");
+    return;
+  }
+  const guildId = message.guild.id;
+
+  // Target: mentioned user or self
+  const targetId = getMentionedUser(message, args) ?? message.author.id;
+
+  const status = await message.reply({ content: "Tera profile bana rahi hoon... ✨" });
+
+  const [cardUser, dbUser, rel] = await Promise.all([
+    resolveCardUser(targetId, client, guildId),
+    BotUser.findOne({ userId: targetId }),
+    UserRelationship.findOne({ userId: targetId, guildId }),
+  ]);
+
+  // Resolve spouse name if married
+  let spouseName: string | null = null;
+  if (rel?.marriedTo) {
+    const spouseUser = await resolveCardUser(rel.marriedTo, client, guildId);
+    spouseName = spouseUser.username;
+  }
+
+  const profileData = {
+    user: cardUser,
+    messageCount: dbUser?.messageCount ?? 0,
+    spouseName,
+    parentsCount: rel?.parents?.length ?? 0,
+    childrenCount: rel?.children?.length ?? 0,
+  };
+
+  try {
+    const buf = await generateProfileCard(profileData);
+    await status.edit({
+      content: "",
+      files: [{ attachment: buf, name: "profile.png" }],
+    });
+  } catch (err) {
+    logger.error({ err }, "Profile card error");
+    await status.edit({ content: "Card banane mein problem aayi. Sorry! 😅" });
+  }
+}
+
 // ─── Runaway command ──────────────────────────────────────────────────────────
 
 async function handleRunaway(message: Message): Promise<void> {
@@ -562,8 +615,10 @@ async function handleHelp(message: Message, prefix: string): Promise<void> {
     { name: `${prefix}marry @user`, value: "Kisi ko propose karo 💍" },
     { name: `${prefix}divorce`, value: "Apne partner se alag ho jao 💔" },
     { name: `${prefix}adopt @user`, value: "Kisi ko apna bachcha banao 👶" },
-    { name: `${prefix}unadopt @user`, value: "Bachche ko unadopt karo 🚪" },
-    { name: `${prefix}family`, value: "Apna pura parivaar dekho 🏠" },
+    { name: `${prefix}unadopt @user`, value: "Bachche ko unadopt karo (parent side) 🚪" },
+    { name: `${prefix}runaway`, value: "Apne parents se bhaag jao (child side) 🏃" },
+    { name: `${prefix}family [@user]`, value: "Apna pura parivaar dekho 🏠" },
+    { name: `${prefix}profile [@user]`, value: "Apna ya kisi ka profile card dekho ✨" },
     { name: `${prefix}help`, value: "Ye help message 😊" },
   ];
 
@@ -606,6 +661,10 @@ export async function handlePrefixCommand(
       case "help":
       case "commands":
         await handleHelp(message, prefix);
+        break;
+      case "profile":
+      case "p":
+        await handleProfile(message, client, args);
         break;
       case "runaway":
       case "escape":

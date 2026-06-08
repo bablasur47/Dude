@@ -12,6 +12,11 @@ export type PortalUser = {
   pronouns: string | null;
   relationshipVibe: string | null;
   languageStyle: string;
+  bio: string | null;
+  birthday: string | null;
+  emojiStyle: string;
+  replyLength: string;
+  topics: string[];
 };
 
 export type PortalHistoryEntry = {
@@ -27,6 +32,11 @@ export type PortalSettingsInput = {
   pronouns?: string | null;
   relationshipVibe?: string | null;
   languageStyle?: string | null;
+  bio?: string | null;
+  birthday?: string | null;
+  emojiStyle?: string | null;
+  replyLength?: string | null;
+  topics?: string[];
 };
 
 function getToken(): string {

@@ -103,6 +103,22 @@ async function generateReply(
     if (userProfile.languageStyle === "english") {
       prefs.push("Is user ke saath mostly English mein baat kar, Hinglish kam use karna");
     }
+    if (userProfile.bio) {
+      prefs.push(`Is user ke baare mein: ${userProfile.bio}`);
+    }
+    if (userProfile.emojiStyle === "heavy") {
+      prefs.push("Is user ke saath emojis zyada use karo — har message mein 2-4 emojis");
+    } else if (userProfile.emojiStyle === "minimal") {
+      prefs.push("Is user ke saath emojis bahut kam use karo — sirf zaroorat padne par");
+    }
+    if (userProfile.replyLength === "short") {
+      prefs.push("Is user ke liye replies chhoti rakho — 1-2 lines max");
+    } else if (userProfile.replyLength === "long") {
+      prefs.push("Is user ke liye replies thodi lambi kar sakti hai — elaborate karo");
+    }
+    if (userProfile.topics && (userProfile.topics as string[]).length > 0) {
+      prefs.push(`Is user ko ye topics pasand hain: ${(userProfile.topics as string[]).join(", ")} — kabhi kabhi inhe conversation mein naturally laana`);
+    }
     if (prefs.length > 0) {
       systemPrompt += `\n\n[Is user ke baare mein: ${prefs.join(". ")}]`;
     }
@@ -469,7 +485,18 @@ export async function initBot(): Promise<void> {
         return;
       }
 
-      const prefixCommandNames = ["ship", "marry", "marriage", "divorce", "adopt", "unadopt", "family"];
+      const prefixCommandNames = [
+        "help", "commands",
+        "profile", "p",
+        "ship",
+        "marry", "marriage",
+        "divorce",
+        "adopt",
+        "unadopt",
+        "family",
+        "runaway", "escape", "leavefamily", "leave",
+        "parents", "parent",
+      ];
       if (prefixCommandNames.includes(command)) {
         const bannedCheck = await BotUser.findOne({ userId: message.author.id, banned: true });
         if (bannedCheck) return;

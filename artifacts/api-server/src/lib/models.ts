@@ -52,6 +52,11 @@ export interface IBotUser extends Document {
   pronouns?: string;           // he/him | she/her | they/them | custom
   relationshipVibe?: string;   // friend | bestie | crush | formal
   languageStyle?: string;      // hinglish | english
+  bio?: string;                // Short bio Priya references in conversation
+  birthday?: string;           // MM-DD format for birthday wishes
+  emojiStyle?: string;         // heavy | normal | minimal — how many emojis Priya uses
+  replyLength?: string;        // short | medium | long — preferred reply length
+  topics?: string[];           // topics user likes talking about
 }
 
 const BotUserSchema = new Schema<IBotUser>(
@@ -68,6 +73,11 @@ const BotUserSchema = new Schema<IBotUser>(
     pronouns: { type: String, default: null },
     relationshipVibe: { type: String, default: null },
     languageStyle: { type: String, default: "hinglish" },
+    bio: { type: String, default: null },
+    birthday: { type: String, default: null },
+    emojiStyle: { type: String, default: "normal" },
+    replyLength: { type: String, default: "medium" },
+    topics: { type: [String], default: [] },
   },
   { timestamps: true }
 );

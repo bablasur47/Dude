@@ -36,6 +36,11 @@ function formatPortalUser(user: InstanceType<typeof BotUser>) {
     pronouns: user.pronouns ?? null,
     relationshipVibe: user.relationshipVibe ?? null,
     languageStyle: user.languageStyle ?? "hinglish",
+    bio: user.bio ?? null,
+    birthday: user.birthday ?? null,
+    emojiStyle: user.emojiStyle ?? "normal",
+    replyLength: user.replyLength ?? "medium",
+    topics: user.topics ?? [],
   };
 }
 
@@ -142,13 +147,19 @@ router.get("/portal/me", requirePortalAuth, async (req, res): Promise<void> => {
 
 router.patch("/portal/settings", requirePortalAuth, async (req, res): Promise<void> => {
   const { userId } = req.portalUser!;
-  const { nickname, pronouns, relationshipVibe, languageStyle } = req.body as Record<string, string | null>;
+  const body = req.body as Record<string, unknown>;
+  const { nickname, pronouns, relationshipVibe, languageStyle, bio, birthday, emojiStyle, replyLength, topics } = body as Record<string, string | string[] | null>;
 
   const update: Record<string, unknown> = {};
   if (nickname !== undefined) update.nickname = nickname || null;
   if (pronouns !== undefined) update.pronouns = pronouns || null;
   if (relationshipVibe !== undefined) update.relationshipVibe = relationshipVibe || null;
   if (languageStyle !== undefined) update.languageStyle = languageStyle || "hinglish";
+  if (bio !== undefined) update.bio = bio || null;
+  if (birthday !== undefined) update.birthday = birthday || null;
+  if (emojiStyle !== undefined) update.emojiStyle = emojiStyle || "normal";
+  if (replyLength !== undefined) update.replyLength = replyLength || "medium";
+  if (topics !== undefined) update.topics = Array.isArray(topics) ? topics : [];
 
   const user = await BotUser.findOneAndUpdate(
     { userId },

@@ -514,6 +514,42 @@ async function handleFamily(message: Message, client: Client, args: string[]) {
   }
 }
 
+// ─── Parents command ──────────────────────────────────────────────────────────
+
+async function handleParents(message: Message, client: Client, args: string[]): Promise<void> {
+  if (!message.guild) {
+    await message.reply("Ye command sirf server mein use hoti hai!");
+    return;
+  }
+  const guildId = message.guild.id;
+  const targetId = getMentionedUser(message, args) ?? message.author.id;
+
+  const rel = await UserRelationship.findOne({ userId: targetId, guildId });
+  const targetUser = await resolveCardUser(targetId, client, guildId);
+
+  if (!rel || rel.parents.length === 0) {
+    const isSelf = targetId === message.author.id;
+    await message.reply(
+      isSelf
+        ? "Tere koi parents nahi hain! Use `!adopt` karva ke kisi se adopt ho jao. 🏠"
+        : `**${targetUser.username}** ke koi parents nahi hain!`
+    );
+    return;
+  }
+
+  const parentCards = await Promise.all(
+    rel.parents.map((id: string) => resolveCardUser(id, client, guildId))
+  );
+
+  const embed = new EmbedBuilder()
+    .setColor(0x43b581)
+    .setTitle(`👨‍👩‍👧 ${targetUser.username}'s Parents`)
+    .setDescription(parentCards.map((p, i) => `${i + 1}. **${p.username}** (<@${p.id}>)`).join("\n"))
+    .setFooter({ text: "Use !leave to run away from your family" });
+
+  await message.reply({ embeds: [embed] });
+}
+
 // ─── Profile command ──────────────────────────────────────────────────────────
 
 async function handleProfile(message: Message, client: Client, args: string[]): Promise<void> {
@@ -616,7 +652,8 @@ async function handleHelp(message: Message, prefix: string): Promise<void> {
     { name: `${prefix}divorce`, value: "Apne partner se alag ho jao 💔" },
     { name: `${prefix}adopt @user`, value: "Kisi ko apna bachcha banao 👶" },
     { name: `${prefix}unadopt @user`, value: "Bachche ko unadopt karo (parent side) 🚪" },
-    { name: `${prefix}runaway`, value: "Apne parents se bhaag jao (child side) 🏃" },
+    { name: `${prefix}leave`, value: "Apne parents se bhaag jao (child side) 🏃" },
+    { name: `${prefix}parents [@user]`, value: "Apne ya kisi ke parents dekho 👨‍👩‍👧" },
     { name: `${prefix}family [@user]`, value: "Apna pura parivaar dekho 🏠" },
     { name: `${prefix}profile [@user]`, value: "Apna ya kisi ka profile card dekho ✨" },
     { name: `${prefix}help`, value: "Ye help message 😊" },
@@ -669,7 +706,12 @@ export async function handlePrefixCommand(
       case "runaway":
       case "escape":
       case "leavefamily":
+      case "leave":
         await handleRunaway(message);
+        break;
+      case "parent":
+      case "parents":
+        await handleParents(message, client, args);
         break;
       case "ship":
         await handleShip(message, client, args);

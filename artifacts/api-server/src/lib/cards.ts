@@ -5,13 +5,22 @@ GlobalFonts.registerFromPath("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.t
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+// Discord CDN only accepts specific power-of-2 sizes; snap to the nearest valid one
+function snapDiscordSize(size: number): number {
+  const valid = [16, 32, 64, 128, 256, 512, 1024, 2048, 4096];
+  return valid.reduce((prev, curr) =>
+    Math.abs(curr - size) < Math.abs(prev - size) ? curr : prev
+  );
+}
+
 async function fetchAvatar(url: string | null | undefined, size = 256): Promise<Buffer | null> {
   if (!url) return null;
   try {
     // Strip existing query params, force PNG (napi-rs/canvas handles PNG/JPEG best)
     let base = url.split("?")[0];
     if (/\.(webp|gif)$/i.test(base)) base = base.replace(/\.(webp|gif)$/i, ".png");
-    const res = await fetch(`${base}?size=${size}`);
+    const cdnSize = snapDiscordSize(size);
+    const res = await fetch(`${base}?size=${cdnSize}`);
     if (!res.ok) return null;
     return Buffer.from(await res.arrayBuffer());
   } catch {

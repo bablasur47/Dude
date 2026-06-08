@@ -489,11 +489,21 @@ async function handleFamily(message: Message, client: Client, args: string[]) {
 
   const rel = await UserRelationship.findOne({ userId: targetId, guildId });
 
+  // If the user is married, also fetch the spouse's children and merge them
+  // so both sides of a couple see all adopted children in the family tree.
+  const spouseRel = rel?.marriedTo
+    ? await UserRelationship.findOne({ userId: rel.marriedTo, guildId })
+    : null;
+
+  const ownChildIds: string[] = rel?.children ?? [];
+  const spouseChildIds: string[] = spouseRel?.children ?? [];
+  const mergedChildIds = [...new Set([...ownChildIds, ...spouseChildIds])];
+
   const [userCard, spouseCard, parentCards, childCards] = await Promise.all([
     resolveCardUser(targetId, client, guildId),
     rel?.marriedTo ? resolveCardUser(rel.marriedTo, client, guildId) : Promise.resolve(null),
     Promise.all((rel?.parents ?? []).map((id: string) => resolveCardUser(id, client, guildId))),
-    Promise.all((rel?.children ?? []).map((id: string) => resolveCardUser(id, client, guildId))),
+    Promise.all(mergedChildIds.map((id: string) => resolveCardUser(id, client, guildId))),
   ]);
 
   let status;
@@ -515,6 +525,47 @@ async function handleFamily(message: Message, client: Client, args: string[]) {
     parts.push(`💍 **Spouse:** ${spouseCard ? spouseCard.username : "Single"}`);
     parts.push(`👶 **Children:** ${childCards.length ? childCards.map((c) => c.username).join(", ") : "None"}`);
     await status.edit(parts.join("\n")).catch(() => {});
+  }
+}
+
+// ─── Marriage card command ────────────────────────────────────────────────────
+
+async function handleMarriageCard(message: Message, client: Client, args: string[]): Promise<void> {
+  if (!message.guild) {
+    await message.reply("Ye command sirf server mein use hoti hai!");
+    return;
+  }
+  const guildId = message.guild.id;
+  const targetId = getMentionedUser(message, args) ?? message.author.id;
+
+  const rel = await UserRelationship.findOne({ userId: targetId, guildId });
+
+  if (!rel?.marriedTo) {
+    const isSelf = targetId === message.author.id;
+    await message.reply(
+      isSelf
+        ? "Tu abhi married nahi hai! Pehle `!marry @user` karo 💍"
+        : "Ye user married nahi hai!"
+    );
+    return;
+  }
+
+  const status = await message.reply({ content: "Marriage card bana rahi hun... 💍" });
+
+  try {
+    const [user, spouse] = await Promise.all([
+      resolveCardUser(targetId, client, guildId),
+      resolveCardUser(rel.marriedTo, client, guildId),
+    ]);
+    const marriedAt = rel.marriedAt ?? new Date();
+    const buf = await generateMarriageCard(user, spouse, marriedAt);
+    await status.edit({
+      content: `💍 **${user.username}** & **${spouse.username}** — Happily Married! 💕`,
+      files: [{ attachment: buf, name: "marriage-card.png" }],
+    });
+  } catch (err) {
+    logger.error({ err }, "Marriage card command failed");
+    await status.edit("Marriage card nahi ban paaya abhi 😅").catch(() => {});
   }
 }
 
@@ -842,6 +893,7 @@ async function handleHelp(message: Message, prefix: string): Promise<void> {
     { name: `${prefix}parents [@user]`, value: "Apne ya kisi ke parents dekho 👨‍👩‍👧" },
     { name: `${prefix}family [@user]`, value: "Apna pura parivaar dekho 🏠" },
     { name: `${prefix}profile [@user]`, value: "Apna ya kisi ka profile card dekho ✨" },
+    { name: `${prefix}marriagecard [@user]`, value: "Apna ya kisi ka marriage card dekho 💍" },
     { name: `${prefix}roast @user`, value: "Kisi ko AI se roast karwao 🔥" },
     { name: `${prefix}hug @user`, value: "Kisi ko hug karo 🤗" },
     { name: `${prefix}slap @user`, value: "Kisi ko thappad maro 👋" },
@@ -943,6 +995,11 @@ export async function handlePrefixCommand(
         break;
       case "family":
         await handleFamily(message, client, args);
+        break;
+      case "marriagecard":
+      case "mcard":
+      case "weddingcard":
+        await handleMarriageCard(message, client, args);
         break;
     }
   } catch (err) {

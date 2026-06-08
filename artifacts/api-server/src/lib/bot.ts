@@ -496,6 +496,7 @@ export async function initBot(): Promise<void> {
         "family",
         "runaway", "escape", "leavefamily", "leave",
         "parents", "parent",
+        "marriagecard", "mcard", "weddingcard",
         "roast",
         "hug",
         "slap",

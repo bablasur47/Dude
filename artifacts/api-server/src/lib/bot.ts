@@ -14,7 +14,7 @@ import { getAiResponse } from "./ai-router";
 import { getPersonality } from "./personality";
 import { handlePrefixCommand, getServerPrefix, invalidatePrefixCache } from "./prefix-commands";
 import { generateCounterCard, generateAdoptCard } from "./cards";
-import type { CardUser } from "./cards";
+import type { CardUser, CounterMember } from "./cards";
 
 export let discordClient: Client | null = null;
 export let botStartTime = Date.now();
@@ -1026,6 +1026,8 @@ export async function initBot(): Promise<void> {
         const members = await guild.members.fetch().catch(() => guild.members.cache);
         const memberCount = members.size;
         const botCount = members.filter((m) => m.user.bot).size;
+        const memberMap = new Map(members.map((m) => [m.user.id, m]));
+        const topMembers = await getTopMembers(guildId, memberMap);
 
         const buf = await generateCounterCard({
           guildName: guild.name,
@@ -1034,6 +1036,7 @@ export async function initBot(): Promise<void> {
           memberCount,
           botCount,
           updatedAt: new Date(),
+          topMembers,
         });
 
         const posted = await channel.send({
@@ -1135,6 +1138,33 @@ export async function initBot(): Promise<void> {
   await client.login(token);
 }
 
+// ─── Top members helper ───────────────────────────────────────────────────────
+
+async function getTopMembers(
+  guildId: string,
+  guildMembers: Map<string, import("discord.js").GuildMember>
+): Promise<CounterMember[]> {
+  const top = await BotUser.find({ servers: guildId, banned: { $ne: true } })
+    .sort({ messageCount: -1 })
+    .limit(10)
+    .lean()
+    .catch(() => []);
+
+  return top.map((u) => {
+    const member = guildMembers.get(u.userId);
+    const avatarUrl =
+      member?.user.avatarURL({ size: 64 }) ??
+      u.avatarUrl ??
+      undefined;
+    return {
+      userId: u.userId,
+      username: member?.displayName ?? member?.user.username ?? u.username,
+      avatarUrl,
+      messageCount: u.messageCount ?? 0,
+    };
+  });
+}
+
 // ─── Random ping scheduler ────────────────────────────────────────────────────
 
 function startRandomPingScheduler(client: Client) {
@@ -1225,6 +1255,8 @@ function startCounterUpdater(client: Client) {
         const members = await guild.members.fetch().catch(() => guild.members.cache);
         const memberCount = members.size;
         const botCount = members.filter((m) => m.user.bot).size;
+        const memberMap = new Map(members.map((m) => [m.user.id, m]));
+        const topMembers = await getTopMembers(conf.guildId, memberMap);
 
         const buf = await generateCounterCard({
           guildName: guild.name,
@@ -1233,6 +1265,7 @@ function startCounterUpdater(client: Client) {
           memberCount,
           botCount,
           updatedAt: new Date(),
+          topMembers,
         });
 
         await msg.edit({

@@ -496,6 +496,12 @@ export async function initBot(): Promise<void> {
         "family",
         "runaway", "escape", "leavefamily", "leave",
         "parents", "parent",
+        "roast",
+        "hug",
+        "slap",
+        "8ball", "eightball",
+        "rate",
+        "coinflip", "flip",
       ];
       if (prefixCommandNames.includes(command)) {
         const bannedCheck = await BotUser.findOne({ userId: message.author.id, banned: true });

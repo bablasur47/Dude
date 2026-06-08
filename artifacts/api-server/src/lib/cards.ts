@@ -1254,3 +1254,292 @@ export async function generateFamilyCard(
 
   return canvas.toBuffer("image/png");
 }
+
+// ─── Shared text wrap helper ──────────────────────────────────────────────────
+
+function wrapText(
+  ctx: SKRSContext2D,
+  text: string,
+  x: number,
+  startY: number,
+  maxWidth: number,
+  lineHeight: number
+): number {
+  const words = text.split(" ");
+  let line = "";
+  let y = startY;
+  for (const word of words) {
+    const test = line + word + " ";
+    if (ctx.measureText(test).width > maxWidth && line !== "") {
+      ctx.fillText(line.trim(), x, y);
+      line = word + " ";
+      y += lineHeight;
+    } else {
+      line = test;
+    }
+  }
+  if (line.trim()) {
+    ctx.fillText(line.trim(), x, y);
+    y += lineHeight;
+  }
+  return y;
+}
+
+// ─── Roast card ───────────────────────────────────────────────────────────────
+
+export async function generateRoastCard(target: CardUser, roastText: string): Promise<Buffer> {
+  const W = 820, H = 340;
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext("2d");
+
+  const bg = ctx.createLinearGradient(0, 0, W, H);
+  bg.addColorStop(0, "#0e0100");
+  bg.addColorStop(0.4, "#1a0500");
+  bg.addColorStop(0.7, "#200800");
+  bg.addColorStop(1, "#0a0000");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  const fireGlow = ctx.createRadialGradient(W / 2, H + 60, 10, W / 2, H + 60, 380);
+  fireGlow.addColorStop(0, "rgba(255,120,0,0.22)");
+  fireGlow.addColorStop(0.5, "rgba(220,50,0,0.10)");
+  fireGlow.addColorStop(1, "transparent");
+  ctx.fillStyle = fireGlow;
+  ctx.fillRect(0, 0, W, H);
+
+  const leftGlow = ctx.createRadialGradient(150, H / 2, 10, 150, H / 2, 200);
+  leftGlow.addColorStop(0, "rgba(255,60,0,0.18)");
+  leftGlow.addColorStop(1, "transparent");
+  ctx.fillStyle = leftGlow;
+  ctx.fillRect(0, 0, W, H);
+
+  for (let i = 0; i < 80; i++) {
+    const ex = (i * 193.7 + 7) % W;
+    const ey = (i * 83.1 + 13) % H;
+    ctx.save();
+    ctx.globalAlpha = 0.07 + (i % 6) * 0.04;
+    ctx.fillStyle = i % 3 === 0 ? "#ff6600" : i % 3 === 1 ? "#ff2200" : "#ffaa00";
+    ctx.beginPath();
+    ctx.arc(ex, ey, i % 7 === 0 ? 1.5 : 0.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  ctx.save();
+  roundedRect(ctx, 8, 8, W - 16, H - 16, 20);
+  const borderG = ctx.createLinearGradient(0, 0, W, H);
+  borderG.addColorStop(0, "#ff4500");
+  borderG.addColorStop(0.5, "#ff8c00aa");
+  borderG.addColorStop(1, "#ff4500");
+  ctx.strokeStyle = borderG;
+  ctx.lineWidth = 2.5;
+  ctx.shadowBlur = 22;
+  ctx.shadowColor = "#ff4500";
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.save();
+  roundedRect(ctx, 14, 14, W - 28, H - 28, 15);
+  ctx.strokeStyle = "rgba(255,100,0,0.08)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+
+  const DIV_X = 280;
+  ctx.save();
+  const divG = ctx.createLinearGradient(DIV_X, 30, DIV_X, H - 30);
+  divG.addColorStop(0, "transparent");
+  divG.addColorStop(0.3, "rgba(255,80,0,0.40)");
+  divG.addColorStop(0.7, "rgba(255,140,0,0.30)");
+  divG.addColorStop(1, "transparent");
+  ctx.strokeStyle = divG;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(DIV_X, 30);
+  ctx.lineTo(DIV_X, H - 30);
+  ctx.stroke();
+  ctx.restore();
+
+  const AV_CX = 145, AV_CY = H / 2 - 8, AV_R = 90;
+
+  ctx.save();
+  roundedRect(ctx, AV_CX - 52, AV_CY - AV_R - 34, 104, 24, 12);
+  ctx.fillStyle = "rgba(255,60,0,0.20)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255,80,0,0.55)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+  ctx.save();
+  ctx.font = `bold 11px "DejaVu"`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "#ff8c00";
+  ctx.shadowBlur = 8;
+  ctx.shadowColor = "#ff4500";
+  ctx.fillText("\uD83D\uDD25 ROASTED \uD83D\uDD25", AV_CX, AV_CY - AV_R - 22);
+  ctx.restore();
+
+  await drawAvatar(ctx, target.avatarUrl, AV_CX, AV_CY, AV_R, "#ff4500", "#ff6600", target.username[0]);
+
+  ctx.save();
+  ctx.font = `bold 14px "DejaVu"`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillStyle = "#ffffff";
+  ctx.shadowBlur = 10;
+  ctx.shadowColor = "#ff4500";
+  ctx.fillText(truncate(target.username, 16), AV_CX, AV_CY + AV_R + 10);
+  ctx.restore();
+
+  const TX = DIV_X + 28;
+  const TEXT_MAX_W = W - TX - 32;
+
+  ctx.save();
+  ctx.font = `bold 11px "DejaVu"`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillStyle = "rgba(255,140,0,0.55)";
+  ctx.fillText("THE VERDICT:", TX, 40);
+  ctx.restore();
+
+  ctx.save();
+  ctx.font = `bold 48px "DejaVu"`;
+  ctx.fillStyle = "rgba(255,80,0,0.14)";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillText("\u201C", TX - 4, 42);
+  ctx.restore();
+
+  ctx.save();
+  ctx.font = `15px "DejaVu"`;
+  ctx.fillStyle = "#ffe0cc";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  wrapText(ctx, roastText, TX + 12, 72, TEXT_MAX_W, 26);
+  ctx.restore();
+
+  ctx.save();
+  const barG = ctx.createLinearGradient(TX, 0, W - 22, 0);
+  barG.addColorStop(0, "#ff4500");
+  barG.addColorStop(0.5, "#ff8c00");
+  barG.addColorStop(1, "#ff4500");
+  roundedRect(ctx, TX, H - 36, W - TX - 22, 4, 2);
+  ctx.fillStyle = barG;
+  ctx.shadowBlur = 12;
+  ctx.shadowColor = "#ff4500";
+  ctx.fill();
+  ctx.restore();
+
+  ctx.save();
+  ctx.font = `11px "DejaVu"`;
+  ctx.textAlign = "right";
+  ctx.textBaseline = "bottom";
+  ctx.fillStyle = "rgba(255,255,255,0.20)";
+  ctx.fillText("Priya Bot", W - 28, H - 20);
+  ctx.restore();
+
+  return canvas.toBuffer("image/png");
+}
+
+// ─── Action card (hug / slap / poke / etc.) ──────────────────────────────────
+
+export async function generateActionCard(
+  from: CardUser,
+  to: CardUser,
+  action: string,
+  emoji: string,
+  color1: string,
+  color2: string
+): Promise<Buffer> {
+  const W = 800, H = 300;
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext("2d");
+
+  const bg = ctx.createLinearGradient(0, 0, W, H);
+  bg.addColorStop(0, "#08080f");
+  bg.addColorStop(0.5, "#110818");
+  bg.addColorStop(1, "#06060e");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  const wash = ctx.createRadialGradient(W / 2, H / 2, 20, W / 2, H / 2, 300);
+  wash.addColorStop(0, color1 + "22");
+  wash.addColorStop(1, "transparent");
+  ctx.fillStyle = wash;
+  ctx.fillRect(0, 0, W, H);
+
+  for (let i = 0; i < 60; i++) {
+    const sx = (i * 177.3 + 11) % W;
+    const sy = (i * 91.7 + 7) % H;
+    ctx.save();
+    ctx.globalAlpha = 0.08 + (i % 5) * 0.04;
+    ctx.fillStyle = i % 2 === 0 ? color1 : color2;
+    ctx.beginPath();
+    ctx.arc(sx, sy, i % 9 === 0 ? 1.4 : 0.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  ctx.save();
+  roundedRect(ctx, 8, 8, W - 16, H - 16, 18);
+  const borderG = ctx.createLinearGradient(0, 0, W, H);
+  borderG.addColorStop(0, color1);
+  borderG.addColorStop(0.5, color2 + "aa");
+  borderG.addColorStop(1, color1);
+  ctx.strokeStyle = borderG;
+  ctx.lineWidth = 2.5;
+  ctx.shadowBlur = 18;
+  ctx.shadowColor = color1;
+  ctx.stroke();
+  ctx.restore();
+
+  const AV_R = 78;
+  const AV_Y = H / 2;
+
+  await drawAvatar(ctx, from.avatarUrl, 140, AV_Y, AV_R, color1, color1, from.username[0]);
+  await drawAvatar(ctx, to.avatarUrl, W - 140, AV_Y, AV_R, color2, color2, to.username[0]);
+
+  ctx.save();
+  ctx.font = `bold 44px "DejaVu"`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(emoji, W / 2, AV_Y - 20);
+  ctx.restore();
+
+  ctx.save();
+  ctx.font = `bold 17px "DejaVu"`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const aGrad = ctx.createLinearGradient(W / 2 - 80, 0, W / 2 + 80, 0);
+  aGrad.addColorStop(0, color1);
+  aGrad.addColorStop(0.5, "#ffffff");
+  aGrad.addColorStop(1, color2);
+  ctx.fillStyle = aGrad;
+  ctx.shadowBlur = 12;
+  ctx.shadowColor = color1;
+  ctx.fillText(action, W / 2, AV_Y + 20);
+  ctx.restore();
+
+  ctx.save();
+  ctx.font = `bold 14px "DejaVu"`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillStyle = "#ffffff";
+  ctx.shadowBlur = 6;
+  ctx.shadowColor = color1;
+  ctx.fillText(truncate(from.username, 12), 140, AV_Y + AV_R + 10);
+  ctx.restore();
+
+  ctx.save();
+  ctx.font = `bold 14px "DejaVu"`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillStyle = "#ffffff";
+  ctx.shadowBlur = 6;
+  ctx.shadowColor = color2;
+  ctx.fillText(truncate(to.username, 12), W - 140, AV_Y + AV_R + 10);
+  ctx.restore();
+
+  return canvas.toBuffer("image/png");
+}

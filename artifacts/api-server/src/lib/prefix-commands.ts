@@ -16,8 +16,12 @@ import {
   generateAdoptCard,
   generateFamilyCard,
   generateProfileCard,
+  generateRoastCard,
+  generateActionCard,
   type CardUser,
 } from "./cards";
+import { getAiResponse } from "./ai-router";
+import { getPersonality } from "./personality";
 
 // ─── Prefix cache ─────────────────────────────────────────────────────────────
 
@@ -641,6 +645,188 @@ async function handleRunaway(message: Message): Promise<void> {
   });
 }
 
+// ─── Roast command ────────────────────────────────────────────────────────────
+
+async function handleRoast(message: Message, client: Client, args: string[]): Promise<void> {
+  const guildId = message.guild?.id ?? "dm";
+  const targetId = getMentionedUser(message, args) ?? null;
+
+  if (!targetId) {
+    await message.reply("Kisko roast karun? Tag karo! Example: `!roast @user`");
+    return;
+  }
+  if (targetId === message.author.id) {
+    await message.reply("Khud ko roast? Itna self-aware hona bhi achi baat nahi yaar 😂");
+    return;
+  }
+  if (targetId === client.user?.id) {
+    await message.reply("Mujhe roast karega? Try karo — main ready hun 😤🔥");
+    return;
+  }
+
+  const target = await resolveCardUser(targetId, client, guildId);
+  const status = await message.reply({ content: `Priya roast ki taiyaari kar rahi hai... 🔥` });
+
+  try {
+    const personality = await getPersonality();
+    const roastMessages = [
+      { role: "system" as const, content: "Tu Priya hai — ek savage, funny Discord bot. Tu short aur punchy roasts likhti hai." },
+      { role: "user" as const, content: `Write a short, funny savage roast for a Discord user named "${target.username}". 2-3 sentences max. Make it playful, clever, not genuinely mean. Hinglish ya English dono chalega.` },
+    ];
+    const roastText = (await getAiResponse(roastMessages, personality.activeProvider as "groq" | "gemini" | "nvidia")).trim();
+
+    const buf = await generateRoastCard(target, roastText);
+    await status.edit({
+      content: `🔥 <@${targetId}> **got roasted** by <@${message.author.id}>!`,
+      files: [{ attachment: buf, name: "roast.png" }],
+    });
+  } catch (err) {
+    logger.error({ err }, "Roast command failed");
+    await status.edit("Yaar roast generate karne mein problem aayi 😅").catch(() => {});
+  }
+}
+
+// ─── Hug command ──────────────────────────────────────────────────────────────
+
+async function handleHug(message: Message, client: Client, args: string[]): Promise<void> {
+  const guildId = message.guild?.id ?? "dm";
+  const targetId = getMentionedUser(message, args) ?? null;
+
+  if (!targetId) {
+    await message.reply("Kisko hug karna hai? Tag karo! Example: `!hug @user`");
+    return;
+  }
+  if (targetId === message.author.id) {
+    await message.reply("Khud ko hug karna chahta/chahti hai? Aww, le lo apna hug! 🤗");
+    return;
+  }
+
+  const [from, to] = await Promise.all([
+    resolveCardUser(message.author.id, client, guildId),
+    resolveCardUser(targetId, client, guildId),
+  ]);
+
+  const status = await message.reply({ content: "Aww... 🤗" });
+  try {
+    const buf = await generateActionCard(from, to, `${from.username} hugged ${to.username}!`, "🤗", "#ff80ab", "#c084fc");
+    await status.edit({
+      content: `🤗 **${from.username}** ne **${to.username}** ko hug kiya! Cute! 💕`,
+      files: [{ attachment: buf, name: "hug.png" }],
+    });
+  } catch (err) {
+    logger.error({ err }, "Hug card failed");
+    await status.edit(`🤗 **${from.username}** ne **${to.username}** ko hug kiya! Aww!`).catch(() => {});
+  }
+}
+
+// ─── Slap command ─────────────────────────────────────────────────────────────
+
+async function handleSlap(message: Message, client: Client, args: string[]): Promise<void> {
+  const guildId = message.guild?.id ?? "dm";
+  const targetId = getMentionedUser(message, args) ?? null;
+
+  if (!targetId) {
+    await message.reply("Kisko slap karun? Tag karo! Example: `!slap @user`");
+    return;
+  }
+  if (targetId === message.author.id) {
+    await message.reply("Khud ko slap? Theek hai, deserve karta/karti hai shayad 😂👋");
+    return;
+  }
+
+  const [from, to] = await Promise.all([
+    resolveCardUser(message.author.id, client, guildId),
+    resolveCardUser(targetId, client, guildId),
+  ]);
+
+  const status = await message.reply({ content: "👋💥" });
+  try {
+    const buf = await generateActionCard(from, to, `${from.username} slapped ${to.username}!`, "👋", "#ff4444", "#ff8c00");
+    await status.edit({
+      content: `👋 **${from.username}** ne **${to.username}** ko slap maar diya! THAPPAD! 💥`,
+      files: [{ attachment: buf, name: "slap.png" }],
+    });
+  } catch (err) {
+    logger.error({ err }, "Slap card failed");
+    await status.edit(`👋 **${from.username}** ne **${to.username}** ko slap maar diya! THAPPAD!`).catch(() => {});
+  }
+}
+
+// ─── 8ball command ────────────────────────────────────────────────────────────
+
+const EIGHTBALL_RESPONSES = [
+  "Bilkul haan! ✨", "Definitely! 💯", "Haan, main sure hun!", "Lagta hai haan yaar!",
+  "Sab signs haan ki taraf ja rahe hain 🌟", "Pakka! 🎯",
+  "Nahi yaar... 💀", "Bilkul nahi!", "Iski koi chance nahi.", "Definitely nahi!",
+  "Main tujhe doubt karta/karti hun 🤨", "Iske baare mein mat socho.",
+  "Abhi nahi bolunga/bolungi 🙈", "Thodi der baad pooch.", "Picture abhi clear nahi hai 🌫️",
+  "Better luck next time!", "Hmm... 50-50 yaar!", "Shayad? Main bhi nahi jaanti 🤷",
+];
+
+async function handleEightBall(message: Message, args: string[]): Promise<void> {
+  const question = args.join(" ").trim();
+  if (!question) {
+    await message.reply("Kuch poochh toh yaar! Example: `!8ball Kya main pass hounga?`");
+    return;
+  }
+  const answer = EIGHTBALL_RESPONSES[Math.floor(Math.random() * EIGHTBALL_RESPONSES.length)];
+  const embed = new EmbedBuilder()
+    .setColor(0x2e0052)
+    .setTitle("🎱 Magic 8-Ball")
+    .addFields(
+      { name: "Sawaal", value: question.length > 200 ? question.slice(0, 197) + "..." : question },
+      { name: "Jawab", value: answer }
+    )
+    .setFooter({ text: "Priya Bot" });
+  await message.reply({ embeds: [embed] });
+}
+
+// ─── Rate command ─────────────────────────────────────────────────────────────
+
+async function handleRate(message: Message, args: string[]): Promise<void> {
+  const thing = args.join(" ").trim();
+  if (!thing) {
+    await message.reply("Kya rate karun? Example: `!rate pizza`");
+    return;
+  }
+
+  const status = await message.reply({ content: "Soch rahi hun... 🤔" });
+  try {
+    const personality = await getPersonality();
+    const rateMessages = [
+      { role: "system" as const, content: "Tu Priya hai — ek opinionated, funny Indian girl. Tu cheezein rate karti hai apne hisaab se." },
+      { role: "user" as const, content: `Rate "${thing}" out of 10 with a short funny explanation in Priya's style. Format: "[number]/10 — [short reason]". Keep it under 2 sentences.` },
+    ];
+    const rating = (await getAiResponse(rateMessages, personality.activeProvider as "groq" | "gemini" | "nvidia")).trim();
+
+    const embed = new EmbedBuilder()
+      .setColor(0x9b59b6)
+      .setTitle("⭐ Priya's Rating")
+      .addFields(
+        { name: "Cheez", value: thing.length > 200 ? thing.slice(0, 197) + "..." : thing },
+        { name: "Rating", value: rating }
+      )
+      .setFooter({ text: "Priya's honest opinion 😌" });
+
+    await status.edit({ content: "", embeds: [embed] });
+  } catch (err) {
+    logger.error({ err }, "Rate command failed");
+    await status.edit("Yaar rate nahi kar paai abhi 😅").catch(() => {});
+  }
+}
+
+// ─── Coinflip command ─────────────────────────────────────────────────────────
+
+async function handleCoinflip(message: Message): Promise<void> {
+  const result = Math.random() < 0.5 ? "Heads 🪙" : "Tails 🔄";
+  const comments = [
+    "Fate ne decide kar diya!", "Lucky day!", "Tera number aa gaya!",
+    "Theek hai, pagal!", "Agar tu khush nahi hai toh dobara karte hain lol",
+  ];
+  const comment = comments[Math.floor(Math.random() * comments.length)];
+  await message.reply(`🪙 **${result}!** — ${comment}`);
+}
+
 // ─── Help command ─────────────────────────────────────────────────────────────
 
 async function handleHelp(message: Message, prefix: string): Promise<void> {
@@ -656,6 +842,12 @@ async function handleHelp(message: Message, prefix: string): Promise<void> {
     { name: `${prefix}parents [@user]`, value: "Apne ya kisi ke parents dekho 👨‍👩‍👧" },
     { name: `${prefix}family [@user]`, value: "Apna pura parivaar dekho 🏠" },
     { name: `${prefix}profile [@user]`, value: "Apna ya kisi ka profile card dekho ✨" },
+    { name: `${prefix}roast @user`, value: "Kisi ko AI se roast karwao 🔥" },
+    { name: `${prefix}hug @user`, value: "Kisi ko hug karo 🤗" },
+    { name: `${prefix}slap @user`, value: "Kisi ko thappad maro 👋" },
+    { name: `${prefix}8ball <sawaal>`, value: "Magic 8-ball se poochho 🎱" },
+    { name: `${prefix}rate <kuch bhi>`, value: "Priya kisi bhi cheez ko rate karegi ⭐" },
+    { name: `${prefix}coinflip`, value: "Heads ya tails? 🪙" },
     { name: `${prefix}help`, value: "Ye help message 😊" },
   ];
 
@@ -712,6 +904,26 @@ export async function handlePrefixCommand(
       case "parent":
       case "parents":
         await handleParents(message, client, args);
+        break;
+      case "roast":
+        await handleRoast(message, client, args);
+        break;
+      case "hug":
+        await handleHug(message, client, args);
+        break;
+      case "slap":
+        await handleSlap(message, client, args);
+        break;
+      case "8ball":
+      case "eightball":
+        await handleEightBall(message, args);
+        break;
+      case "rate":
+        await handleRate(message, args);
+        break;
+      case "coinflip":
+      case "flip":
+        await handleCoinflip(message);
         break;
       case "ship":
         await handleShip(message, client, args);

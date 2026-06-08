@@ -9,10 +9,12 @@ import {
   ChannelType,
 } from "discord.js";
 import { logger } from "./logger";
-import { ChatHistory, BotUser, ServerConfig, Personality } from "./models";
+import { ChatHistory, BotUser, ServerConfig, Personality, UserRelationship } from "./models";
 import { getAiResponse } from "./ai-router";
 import { getPersonality } from "./personality";
 import { handlePrefixCommand, getServerPrefix, invalidatePrefixCache } from "./prefix-commands";
+import { generateCounterCard, generateAdoptCard } from "./cards";
+import type { CardUser } from "./cards";
 
 export let discordClient: Client | null = null;
 export let botStartTime = Date.now();
@@ -351,6 +353,28 @@ export async function initBot(): Promise<void> {
         ],
       },
       {
+        name: "forceadopt",
+        description: "[Owner] Forcefully adopt any user as another's child (no consent needed)",
+        options: [
+          {
+            name: "parent",
+            description: "The parent user",
+            type: 6, // USER
+            required: true,
+          },
+          {
+            name: "child",
+            description: "The child user",
+            type: 6, // USER
+            required: true,
+          },
+        ],
+      },
+      {
+        name: "setupcounter",
+        description: "Post a live message-count image in this channel, updated every 30s (Admin only)",
+      },
+      {
         name: "setprovider",
         description: "[Owner] Switch Priya's active AI provider",
         options: [
@@ -371,6 +395,8 @@ export async function initBot(): Promise<void> {
 
     // Start random ping scheduler
     startRandomPingScheduler(c);
+    // Start live counter updater
+    startCounterUpdater(c);
   });
 
   // ─── Guild Join ──────────────────────────────────────────────────────────────
@@ -899,8 +925,129 @@ export async function initBot(): Promise<void> {
           return;
         }
 
-        await (targetChannel as TextChannel).send(content);
+        // Non-owners cannot ping @everyone/@here/roles — strip them silently
+        const hasMassPing = /@everyone|@here|<@&\d+>/.test(content);
+        if (hasMassPing && !isOwner) {
+          await interaction.reply({
+            content: "⚠️ Mass pings (@everyone, @here, role mentions) allowed nahi hain `/say` mein! Message nahi bheja gaya.",
+            ephemeral: true,
+          });
+          return;
+        }
+
+        await (targetChannel as TextChannel).send({
+          content,
+          // Even for admins, suppress all mention pings unless owner explicitly used them
+          allowedMentions: isOwner ? undefined : { parse: ["users"] },
+        });
         await interaction.reply({ content: `Done! Message send kar diya <#${targetChannel.id}> mein.`, ephemeral: true });
+        return;
+      }
+
+      // ── /forceadopt — Owner only: forcefully adopt any user ──────────────────
+      if (commandName === "forceadopt") {
+        const isOwner = user.id === process.env.OWNER_DISCORD_ID;
+        if (!isOwner) {
+          await interaction.reply({ content: "Yaar ye sirf bot owner kar sakta hai!", ephemeral: true });
+          return;
+        }
+        if (!guildId) {
+          await interaction.reply({ content: "Ye command sirf server mein use hoti hai.", ephemeral: true });
+          return;
+        }
+
+        await interaction.deferReply();
+
+        const parentUser = interaction.options.getUser("parent", true);
+        const childUser = interaction.options.getUser("child", true);
+
+        if (parentUser.id === childUser.id) {
+          await interaction.editReply("Parent aur child same nahi ho sakte!");
+          return;
+        }
+
+        await Promise.all([
+          UserRelationship.findOneAndUpdate(
+            { userId: parentUser.id, guildId },
+            { $addToSet: { children: childUser.id } },
+            { upsert: true }
+          ),
+          UserRelationship.findOneAndUpdate(
+            { userId: childUser.id, guildId },
+            { $addToSet: { parents: parentUser.id } },
+            { upsert: true }
+          ),
+        ]);
+
+        const snapSize = (n: number): number => {
+          const sizes = [16, 32, 64, 128, 256, 512, 1024, 2048, 4096];
+          let best = sizes[0];
+          for (const s of sizes) { if (s <= n) best = s; else break; }
+          return best;
+        };
+        const toCard = (u: import("discord.js").User): CardUser => ({
+          id: u.id,
+          username: u.displayName ?? u.username,
+          avatarUrl: u.avatarURL({ size: snapSize(256) as 256 }) ?? undefined,
+        });
+
+        try {
+          const buf = await generateAdoptCard(toCard(parentUser), toCard(childUser));
+          await interaction.editReply({
+            content: `✅ Done! **${parentUser.displayName ?? parentUser.username}** ne **${childUser.displayName ?? childUser.username}** ko forcefully adopt kar liya! 🏠`,
+            files: [{ attachment: buf, name: "force-adopt.png" }],
+          });
+        } catch (err) {
+          logger.error({ err }, "forceadopt card failed");
+          await interaction.editReply(`✅ Done! **${parentUser.username}** ne **${childUser.username}** ko adopt kar liya!`);
+        }
+        return;
+      }
+
+      // ── /setupcounter — Admin: post live message-count image in this channel ─
+      if (commandName === "setupcounter") {
+        const isAdmin = interaction.memberPermissions?.has("Administrator") ?? false;
+        const isOwner = user.id === process.env.OWNER_DISCORD_ID;
+        if (!isAdmin && !isOwner) {
+          await interaction.reply({ content: "Yaar sirf Administrators ye set kar sakte hain!", ephemeral: true });
+          return;
+        }
+        if (!guildId || !interaction.guild) {
+          await interaction.reply({ content: "Ye command sirf server mein use hoti hai.", ephemeral: true });
+          return;
+        }
+
+        await interaction.deferReply({ ephemeral: true });
+
+        const guild = interaction.guild;
+        const channel = interaction.channel as TextChannel;
+        const serverConf = await ServerConfig.findOne({ guildId });
+
+        const members = await guild.members.fetch().catch(() => guild.members.cache);
+        const memberCount = members.size;
+        const botCount = members.filter((m) => m.user.bot).size;
+
+        const buf = await generateCounterCard({
+          guildName: guild.name,
+          guildIconUrl: guild.iconURL({ size: 256 }) ?? undefined,
+          totalMessages: serverConf?.totalMessages ?? 0,
+          memberCount,
+          botCount,
+          updatedAt: new Date(),
+        });
+
+        const posted = await channel.send({
+          content: "",
+          files: [{ attachment: buf, name: "counter.png" }],
+        });
+
+        await ServerConfig.findOneAndUpdate(
+          { guildId },
+          { $set: { counterChannelId: channel.id, counterMessageId: posted.id } },
+          { upsert: true }
+        );
+
+        await interaction.editReply(`✅ Live counter setup kar diya <#${channel.id}> mein! Ye image har 30 seconds mein update hogi. 📊`);
         return;
       }
 
@@ -1046,4 +1193,60 @@ function startRandomPingScheduler(client: Client) {
 
   const intervalMs = 2 * 60 * 60 * 1000; // 2 hours default
   setInterval(schedule, intervalMs);
+}
+
+// ─── Live counter updater (every 30 s) ───────────────────────────────────────
+
+function startCounterUpdater(client: Client) {
+  const tick = async () => {
+    const configs = await ServerConfig.find({
+      counterChannelId: { $ne: null },
+      counterMessageId: { $ne: null },
+    }).catch(() => []);
+
+    for (const conf of configs) {
+      try {
+        const guild = client.guilds.cache.get(conf.guildId);
+        if (!guild) continue;
+
+        const channel = guild.channels.cache.get(conf.counterChannelId!) as TextChannel | undefined;
+        if (!channel || !("messages" in channel)) continue;
+
+        const msg = await channel.messages.fetch(conf.counterMessageId!).catch(() => null);
+        if (!msg) {
+          // Message was deleted — clear the stored IDs
+          await ServerConfig.findOneAndUpdate(
+            { guildId: conf.guildId },
+            { $set: { counterChannelId: null, counterMessageId: null } }
+          );
+          continue;
+        }
+
+        const members = await guild.members.fetch().catch(() => guild.members.cache);
+        const memberCount = members.size;
+        const botCount = members.filter((m) => m.user.bot).size;
+
+        const buf = await generateCounterCard({
+          guildName: guild.name,
+          guildIconUrl: guild.iconURL({ size: 256 }) ?? undefined,
+          totalMessages: conf.totalMessages ?? 0,
+          memberCount,
+          botCount,
+          updatedAt: new Date(),
+        });
+
+        await msg.edit({
+          content: "",
+          files: [{ attachment: buf, name: "counter.png" }],
+          attachments: [],
+        });
+      } catch (err) {
+        logger.warn({ err, guildId: conf.guildId }, "Counter update failed");
+      }
+    }
+  };
+
+  // Run immediately on start, then every 30 seconds
+  tick().catch(() => {});
+  setInterval(() => tick().catch(() => {}), 30_000);
 }

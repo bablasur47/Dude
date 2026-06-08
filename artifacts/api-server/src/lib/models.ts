@@ -100,6 +100,8 @@ export interface IServerConfig extends Document {
   welcomeChannelId?: string;
   pingChannelId?: string;
   prefix: string;               // per-server command prefix (default "!")
+  counterChannelId?: string;    // channel where live message counter image lives
+  counterMessageId?: string;    // the pinned message ID being updated every 30s
 }
 
 const ServerConfigSchema = new Schema<IServerConfig>(
@@ -115,6 +117,8 @@ const ServerConfigSchema = new Schema<IServerConfig>(
     welcomeChannelId: { type: String, default: null },
     pingChannelId: { type: String, default: null },
     prefix: { type: String, default: "!" },
+    counterChannelId: { type: String, default: null },
+    counterMessageId: { type: String, default: null },
   },
   { timestamps: true }
 );

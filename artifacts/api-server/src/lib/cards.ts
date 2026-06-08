@@ -1255,6 +1255,223 @@ export async function generateFamilyCard(
   return canvas.toBuffer("image/png");
 }
 
+// ─── Live Message Counter Card ────────────────────────────────────────────────
+
+export async function generateCounterCard(opts: {
+  guildName: string;
+  guildIconUrl?: string;
+  totalMessages: number;
+  memberCount: number;
+  botCount: number;
+  updatedAt: Date;
+}): Promise<Buffer> {
+  const W = 900, H = 320;
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext("2d");
+
+  // Background
+  const bg = ctx.createLinearGradient(0, 0, W, H);
+  bg.addColorStop(0, "#0a0015");
+  bg.addColorStop(0.5, "#0f001f");
+  bg.addColorStop(1, "#080012");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Nebula glow spots
+  const spots = [
+    { x: 150, y: 160, r: 220, c1: "rgba(120,0,255,0.18)", c2: "transparent" },
+    { x: 750, y: 100, r: 180, c1: "rgba(0,180,255,0.14)", c2: "transparent" },
+    { x: 500, y: 300, r: 160, c1: "rgba(200,0,255,0.10)", c2: "transparent" },
+  ];
+  for (const s of spots) {
+    const g = ctx.createRadialGradient(s.x, s.y, 10, s.x, s.y, s.r);
+    g.addColorStop(0, s.c1);
+    g.addColorStop(1, s.c2);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // Star particles
+  for (let i = 0; i < 90; i++) {
+    const sx = (i * 197.3 + 11) % W;
+    const sy = (i * 113.7 + 7) % H;
+    ctx.save();
+    ctx.globalAlpha = 0.06 + (i % 7) * 0.05;
+    ctx.fillStyle = i % 3 === 0 ? "#bf80ff" : i % 3 === 1 ? "#80cfff" : "#ffffff";
+    ctx.beginPath();
+    ctx.arc(sx, sy, i % 11 === 0 ? 1.4 : 0.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Outer border
+  ctx.save();
+  roundedRect(ctx, 8, 8, W - 16, H - 16, 22);
+  const borderG = ctx.createLinearGradient(0, 0, W, H);
+  borderG.addColorStop(0, "#8b00ff");
+  borderG.addColorStop(0.5, "#00b4ff88");
+  borderG.addColorStop(1, "#8b00ff");
+  ctx.strokeStyle = borderG;
+  ctx.lineWidth = 2.5;
+  ctx.shadowBlur = 20;
+  ctx.shadowColor = "#8b00ff";
+  ctx.stroke();
+  ctx.restore();
+
+  // Inner subtle border
+  ctx.save();
+  roundedRect(ctx, 14, 14, W - 28, H - 28, 16);
+  ctx.strokeStyle = "rgba(140,0,255,0.08)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+
+  // Server icon on the left
+  const ICON_CX = 120, ICON_CY = H / 2 - 10, ICON_R = 70;
+  await drawAvatar(ctx, opts.guildIconUrl, ICON_CX, ICON_CY, ICON_R, "#8b00ff", "#00b4ff", opts.guildName[0]);
+
+  // Guild name below icon
+  ctx.save();
+  ctx.font = `bold 13px "DejaVu"`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillStyle = "#d4aaff";
+  ctx.shadowBlur = 8;
+  ctx.shadowColor = "#8b00ff";
+  ctx.fillText(truncate(opts.guildName, 14), ICON_CX, ICON_CY + ICON_R + 10);
+  ctx.restore();
+
+  // Divider
+  const DIV_X = 220;
+  ctx.save();
+  const divG = ctx.createLinearGradient(DIV_X, 30, DIV_X, H - 30);
+  divG.addColorStop(0, "transparent");
+  divG.addColorStop(0.3, "rgba(140,0,255,0.45)");
+  divG.addColorStop(0.7, "rgba(0,180,255,0.30)");
+  divG.addColorStop(1, "transparent");
+  ctx.strokeStyle = divG;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(DIV_X, 30);
+  ctx.lineTo(DIV_X, H - 30);
+  ctx.stroke();
+  ctx.restore();
+
+  // "LIVE STATS" badge
+  ctx.save();
+  roundedRect(ctx, DIV_X + 20, 30, 120, 26, 13);
+  ctx.fillStyle = "rgba(140,0,255,0.22)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(140,0,255,0.50)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+  ctx.save();
+  ctx.font = `bold 11px "DejaVu"`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "#bf80ff";
+  ctx.shadowBlur = 8;
+  ctx.shadowColor = "#8b00ff";
+  ctx.fillText("\u{1F4CA} LIVE STATS", DIV_X + 80, 43);
+  ctx.restore();
+
+  // Stats grid — two columns
+  const statItems = [
+    { icon: "\u{1F4AC}", label: "Total Messages", value: opts.totalMessages.toLocaleString() },
+    { icon: "\u{1F465}", label: "Members", value: (opts.memberCount - opts.botCount).toLocaleString() },
+    { icon: "\u{1F916}", label: "Bots", value: opts.botCount.toLocaleString() },
+    { icon: "\u{1F465}", label: "Total Users", value: opts.memberCount.toLocaleString() },
+  ];
+
+  const STAT_START_X = DIV_X + 20;
+  const STAT_START_Y = 78;
+  const COL_W = (W - STAT_START_X - 30) / 2;
+  const ROW_H = 82;
+
+  for (let i = 0; i < statItems.length; i++) {
+    const col = i % 2;
+    const row = Math.floor(i / 2);
+    const bx = STAT_START_X + col * COL_W;
+    const by = STAT_START_Y + row * ROW_H;
+
+    // Card bg
+    ctx.save();
+    roundedRect(ctx, bx, by, COL_W - 14, ROW_H - 12, 12);
+    ctx.fillStyle = "rgba(140,0,255,0.10)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(140,0,255,0.18)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+
+    // Icon
+    ctx.save();
+    ctx.font = `22px "DejaVu"`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillText(statItems[i].icon, bx + 12, by + 10);
+    ctx.restore();
+
+    // Value (big)
+    ctx.save();
+    ctx.font = `bold 24px "DejaVu"`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    const valG = ctx.createLinearGradient(bx + 12, 0, bx + 12 + 120, 0);
+    valG.addColorStop(0, "#bf80ff");
+    valG.addColorStop(1, "#80cfff");
+    ctx.fillStyle = valG;
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = "#8b00ff";
+    ctx.fillText(statItems[i].value, bx + 12, by + 34);
+    ctx.restore();
+
+    // Label
+    ctx.save();
+    ctx.font = `11px "DejaVu"`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillStyle = "rgba(200,180,255,0.55)";
+    ctx.fillText(statItems[i].label, bx + 12, by + 58);
+    ctx.restore();
+  }
+
+  // Bottom bar
+  ctx.save();
+  const barG = ctx.createLinearGradient(DIV_X + 20, 0, W - 22, 0);
+  barG.addColorStop(0, "#8b00ff");
+  barG.addColorStop(0.5, "#00b4ff");
+  barG.addColorStop(1, "#8b00ff");
+  roundedRect(ctx, DIV_X + 20, H - 32, W - DIV_X - 40, 3, 2);
+  ctx.fillStyle = barG;
+  ctx.shadowBlur = 10;
+  ctx.shadowColor = "#8b00ff";
+  ctx.fill();
+  ctx.restore();
+
+  // Updated at
+  const updStr = opts.updatedAt.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: true });
+  ctx.save();
+  ctx.font = `10px "DejaVu"`;
+  ctx.textAlign = "right";
+  ctx.textBaseline = "bottom";
+  ctx.fillStyle = "rgba(200,180,255,0.35)";
+  ctx.fillText(`Updated: ${updStr} IST`, W - 24, H - 18);
+  ctx.restore();
+
+  // Priya branding
+  ctx.save();
+  ctx.font = `10px "DejaVu"`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "bottom";
+  ctx.fillStyle = "rgba(200,180,255,0.35)";
+  ctx.fillText("Priya Bot", DIV_X + 22, H - 18);
+  ctx.restore();
+
+  return canvas.toBuffer("image/png");
+}
+
 // ─── Shared text wrap helper ──────────────────────────────────────────────────
 
 function wrapText(

@@ -583,6 +583,7 @@ export async function initBot(): Promise<void> {
         "8ball", "eightball",
         "rate",
         "coinflip", "flip",
+        "resetcount",
       ];
       if (prefixCommandNames.includes(command)) {
         const bannedCheck = await BotUser.findOne({ userId: message.author.id, banned: true });

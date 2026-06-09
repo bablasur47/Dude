@@ -930,6 +930,42 @@ async function handleHelp(message: Message, prefix: string): Promise<void> {
 
 // ─── Main dispatcher ──────────────────────────────────────────────────────────
 
+// ─── !resetcount ──────────────────────────────────────────────────────────────
+
+async function handleResetCount(message: Message): Promise<void> {
+  if (!message.guild) {
+    await message.reply("Ye command sirf server mein use hoti hai.");
+    return;
+  }
+
+  const member = message.guild.members.cache.get(message.author.id);
+  const isAdmin = member?.permissions.has("Administrator") ?? false;
+  const isServerOwner = message.guild.ownerId === message.author.id;
+
+  if (!isAdmin && !isServerOwner) {
+    await message.reply("❌ Yaar sirf server admins ye kar sakte hain!");
+    return;
+  }
+
+  const guildId = message.guild.id;
+
+  // Reset all users' messageCount who are in this server to 0
+  const result = await BotUser.updateMany(
+    { servers: guildId },
+    { $set: { messageCount: 0 } }
+  );
+
+  // Reset server total message counter
+  await ServerConfig.findOneAndUpdate(
+    { guildId },
+    { $set: { totalMessages: 0 } }
+  );
+
+  await message.reply(
+    `✅ Done! **${result.modifiedCount}** users ke message counts reset kar diye. Leaderboard ab zero se shuru hoga! 🔄`
+  );
+}
+
 export async function handlePrefixCommand(
   message: Message,
   client: Client,
@@ -1000,6 +1036,9 @@ export async function handlePrefixCommand(
       case "mcard":
       case "weddingcard":
         await handleMarriageCard(message, client, args);
+        break;
+      case "resetcount":
+        await handleResetCount(message);
         break;
     }
   } catch (err) {

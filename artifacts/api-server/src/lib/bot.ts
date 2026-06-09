@@ -583,6 +583,8 @@ export async function initBot(): Promise<void> {
         "8ball", "eightball",
         "rate",
         "coinflip", "flip",
+        "rank", "m",
+        "lb",
         "resetcount",
       ];
       if (prefixCommandNames.includes(command)) {

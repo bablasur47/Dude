@@ -18,7 +18,9 @@ import {
   generateProfileCard,
   generateRoastCard,
   generateActionCard,
+  generateCounterCard,
   type CardUser,
+  type CounterMember,
 } from "./cards";
 import { getAiResponse } from "./ai-router";
 import { getPersonality } from "./personality";
@@ -930,6 +932,88 @@ async function handleHelp(message: Message, prefix: string): Promise<void> {
 
 // ─── Main dispatcher ──────────────────────────────────────────────────────────
 
+// ─── !rank / !m ───────────────────────────────────────────────────────────────
+
+async function handleRank(message: Message, client: Client, args: string[]): Promise<void> {
+  if (!message.guild) {
+    await message.reply("Ye command sirf server mein use hoti hai!");
+    return;
+  }
+  const guildId = message.guild.id;
+  const targetId = getMentionedUser(message, args) ?? message.author.id;
+
+  const dbUser = await BotUser.findOne({ userId: targetId });
+  const count = dbUser?.messageCount ?? 0;
+
+  // Find rank — count how many users in this server have MORE messages
+  const rank = (await BotUser.countDocuments({ servers: guildId, messageCount: { $gt: count }, banned: { $ne: true } })) + 1;
+  const total = await BotUser.countDocuments({ servers: guildId, banned: { $ne: true } });
+
+  const member = message.guild.members.cache.get(targetId) ?? await message.guild.members.fetch(targetId).catch(() => null);
+  const displayName = member?.displayName ?? dbUser?.username ?? "Unknown";
+  const isSelf = targetId === message.author.id;
+
+  const medals: Record<number, string> = { 1: "🥇", 2: "🥈", 3: "🥉" };
+  const medal = medals[rank] ?? "💬";
+
+  await message.reply(
+    `${medal} **${displayName}** ka server rank: **#${rank}** out of **${total}** members\n` +
+    `📨 Total messages: **${count.toLocaleString()}**${isSelf ? "" : ` (${displayName} ki ranking)`}`
+  );
+}
+
+// ─── !lb ──────────────────────────────────────────────────────────────────────
+
+async function handleLeaderboard(message: Message, client: Client): Promise<void> {
+  if (!message.guild) {
+    await message.reply("Ye command sirf server mein use hoti hai!");
+    return;
+  }
+  const guildId = message.guild.id;
+  const guild = message.guild;
+
+  const status = await message.reply("Leaderboard bana rahi hoon... ⏳");
+
+  const [members, serverConf, topRaw] = await Promise.all([
+    guild.members.fetch().catch(() => guild.members.cache),
+    ServerConfig.findOne({ guildId }),
+    BotUser.find({ servers: guildId, banned: { $ne: true } })
+      .sort({ messageCount: -1 })
+      .limit(10)
+      .lean(),
+  ]);
+
+  const memberMap = new Map(members.map((m) => [m.user.id, m]));
+
+  const topMembers: CounterMember[] = topRaw.map((u) => {
+    const m = memberMap.get(u.userId);
+    return {
+      userId: u.userId,
+      username: m?.displayName ?? m?.user.username ?? u.username,
+      avatarUrl: m?.user.avatarURL({ size: 64 }) ?? u.avatarUrl ?? undefined,
+      messageCount: u.messageCount ?? 0,
+    };
+  });
+
+  const memberCount = members.size;
+  const botCount = members.filter((m) => m.user.bot).size;
+
+  const buf = await generateCounterCard({
+    guildName: guild.name,
+    guildIconUrl: guild.iconURL({ size: 256 }) ?? undefined,
+    totalMessages: serverConf?.totalMessages ?? 0,
+    memberCount,
+    botCount,
+    updatedAt: new Date(),
+    topMembers,
+  });
+
+  await status.edit({
+    content: "",
+    files: [{ attachment: buf, name: "leaderboard.png" }],
+  });
+}
+
 // ─── !resetcount ──────────────────────────────────────────────────────────────
 
 async function handleResetCount(message: Message): Promise<void> {
@@ -1036,6 +1120,13 @@ export async function handlePrefixCommand(
       case "mcard":
       case "weddingcard":
         await handleMarriageCard(message, client, args);
+        break;
+      case "rank":
+      case "m":
+        await handleRank(message, client, args);
+        break;
+      case "lb":
+        await handleLeaderboard(message, client);
         break;
       case "resetcount":
         await handleResetCount(message);

@@ -1257,13 +1257,6 @@ export async function generateFamilyCard(
 
 // ─── Live Message Counter Card ────────────────────────────────────────────────
 
-export interface CounterMember {
-  userId: string;
-  username: string;
-  avatarUrl?: string;
-  messageCount: number;
-}
-
 export async function generateCounterCard(opts: {
   guildName: string;
   guildIconUrl?: string;
@@ -1271,292 +1264,194 @@ export async function generateCounterCard(opts: {
   memberCount: number;
   botCount: number;
   updatedAt: Date;
-  topMembers: CounterMember[];
 }): Promise<Buffer> {
-  const ROW_H = 48;
-  const HEADER_H = 110;
-  const FOOTER_H = 36;
-  const TOP = opts.topMembers.slice(0, 10);
-  const W = 900;
-  const H = HEADER_H + TOP.length * ROW_H + FOOTER_H;
+  const W = 860, H = 380;
 
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext("2d");
 
-  // ── Background ──
+  // ── Background ─────────────────────────────────────────────────────────────
   const bg = ctx.createLinearGradient(0, 0, W, H);
-  bg.addColorStop(0, "#06000f");
-  bg.addColorStop(0.5, "#0b0018");
-  bg.addColorStop(1, "#050010");
+  bg.addColorStop(0,   "#05000e");
+  bg.addColorStop(0.5, "#09001a");
+  bg.addColorStop(1,   "#040010");
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
-  // Nebula glows
+  // Central glow behind the counter number
+  const coreG = ctx.createRadialGradient(W / 2, H / 2, 20, W / 2, H / 2, 280);
+  coreG.addColorStop(0, "rgba(100,0,220,0.22)");
+  coreG.addColorStop(0.5, "rgba(0,160,255,0.08)");
+  coreG.addColorStop(1, "transparent");
+  ctx.fillStyle = coreG;
+  ctx.fillRect(0, 0, W, H);
+
+  // Corner nebula wisps
   for (const [gx, gy, gr, gc] of [
-    [160, H * 0.4, 280, "rgba(100,0,220,0.14)"],
-    [W - 120, H * 0.3, 200, "rgba(0,160,255,0.10)"],
-    [W * 0.5, H * 0.8, 180, "rgba(180,0,255,0.08)"],
-  ] as [number, number, number, string][]) {
-    const g = ctx.createRadialGradient(gx, gy, 8, gx, gy, gr);
-    g.addColorStop(0, gc);
-    g.addColorStop(1, "transparent");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
+    [0,   0,   200, "rgba(90,0,200,0.12)"],
+    [W,   0,   180, "rgba(0,140,255,0.09)"],
+    [0,   H,   160, "rgba(0,140,255,0.07)"],
+    [W,   H,   200, "rgba(90,0,200,0.10)"],
+  ] as [number,number,number,string][]) {
+    const g = ctx.createRadialGradient(gx, gy, 10, gx, gy, gr);
+    g.addColorStop(0, gc); g.addColorStop(1, "transparent");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
   }
 
-  // Subtle star particles
-  for (let i = 0; i < 70; i++) {
-    const sx = (i * 211.3 + 17) % W;
-    const sy = (i * 97.7 + 5) % H;
+  // Stars
+  for (let i = 0; i < 80; i++) {
+    const sx = (i * 209.3 + 13) % W;
+    const sy = (i * 101.7 + 7)  % H;
     ctx.save();
-    ctx.globalAlpha = 0.04 + (i % 6) * 0.04;
+    ctx.globalAlpha = 0.04 + (i % 7) * 0.035;
     ctx.fillStyle = i % 3 === 0 ? "#bf80ff" : i % 3 === 1 ? "#80cfff" : "#ffffff";
     ctx.beginPath();
-    ctx.arc(sx, sy, i % 13 === 0 ? 1.2 : 0.45, 0, Math.PI * 2);
+    ctx.arc(sx, sy, i % 11 === 0 ? 1.2 : 0.4, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
 
   // Outer border
   ctx.save();
-  roundedRect(ctx, 7, 7, W - 14, H - 14, 20);
+  roundedRect(ctx, 8, 8, W - 16, H - 16, 22);
   const brdG = ctx.createLinearGradient(0, 0, W, H);
-  brdG.addColorStop(0, "#7b00ff");
-  brdG.addColorStop(0.5, "#00b4ff77");
-  brdG.addColorStop(1, "#7b00ff");
+  brdG.addColorStop(0,   "#7b00ff");
+  brdG.addColorStop(0.5, "#00b4ff66");
+  brdG.addColorStop(1,   "#7b00ff");
   ctx.strokeStyle = brdG;
-  ctx.lineWidth = 2;
-  ctx.shadowBlur = 18;
+  ctx.lineWidth = 2.5;
+  ctx.shadowBlur = 20;
   ctx.shadowColor = "#7b00ff";
   ctx.stroke();
   ctx.restore();
 
-  // ── LEFT PANEL — server info ──────────────────────────────────────────────
-  const LEFT_W = 210;
-  const DIV_X = LEFT_W;
-
-  // Server icon
-  const ICON_CX = LEFT_W / 2, ICON_CY = 60, ICON_R = 38;
+  // ── Server icon + name (top center) ───────────────────────────────────────
+  const ICON_R = 44, ICON_CX = W / 2, ICON_CY = 62;
   await drawAvatar(ctx, opts.guildIconUrl, ICON_CX, ICON_CY, ICON_R, "#7b00ff", "#00b4ff", opts.guildName[0]);
 
-  // Server name
   ctx.save();
-  ctx.font = `bold 12px "DejaVu"`;
+  ctx.font = `bold 16px "DejaVu"`;
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
-  ctx.fillStyle = "#d4aaff";
-  ctx.shadowBlur = 6;
+  ctx.fillStyle = "#e0c8ff";
+  ctx.shadowBlur = 10;
   ctx.shadowColor = "#7b00ff";
-  ctx.fillText(truncate(opts.guildName, 16), ICON_CX, ICON_CY + ICON_R + 7);
+  ctx.fillText(truncate(opts.guildName, 28), ICON_CX, ICON_CY + ICON_R + 10);
   ctx.restore();
 
-  // Small stats below
-  const miniStats = [
-    { label: "Messages", value: opts.totalMessages.toLocaleString() },
-    { label: "Members", value: (opts.memberCount - opts.botCount).toLocaleString() },
+  // ── "LIVE" pill ────────────────────────────────────────────────────────────
+  const PILL_W = 52, PILL_H = 20, PILL_X = W / 2 - PILL_W / 2, PILL_Y = ICON_CY + ICON_R + 36;
+  ctx.save();
+  roundedRect(ctx, PILL_X, PILL_Y, PILL_W, PILL_H, 10);
+  ctx.fillStyle = "rgba(255,50,50,0.22)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255,80,80,0.55)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+  ctx.save();
+  ctx.font = `bold 9px "DejaVu"`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "#ff8080";
+  ctx.shadowBlur = 6;
+  ctx.shadowColor = "#ff4040";
+  ctx.fillText("\u25CF  LIVE", W / 2, PILL_Y + PILL_H / 2);
+  ctx.restore();
+
+  // ── Separator line ─────────────────────────────────────────────────────────
+  const SEP_Y = PILL_Y + PILL_H + 14;
+  ctx.save();
+  const sepG = ctx.createLinearGradient(40, 0, W - 40, 0);
+  sepG.addColorStop(0, "transparent");
+  sepG.addColorStop(0.3, "rgba(120,0,255,0.50)");
+  sepG.addColorStop(0.7, "rgba(0,180,255,0.35)");
+  sepG.addColorStop(1, "transparent");
+  ctx.strokeStyle = sepG;
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(40, SEP_Y); ctx.lineTo(W - 40, SEP_Y); ctx.stroke();
+  ctx.restore();
+
+  // ── Big message count ──────────────────────────────────────────────────────
+  const COUNT_Y = SEP_Y + 18;
+  const countStr = opts.totalMessages.toLocaleString();
+
+  ctx.save();
+  ctx.font = `bold 72px "DejaVu"`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  const numG = ctx.createLinearGradient(W / 2 - 200, 0, W / 2 + 200, 0);
+  numG.addColorStop(0, "#9b40ff");
+  numG.addColorStop(0.4, "#ffffff");
+  numG.addColorStop(0.6, "#80e0ff");
+  numG.addColorStop(1, "#5500cc");
+  ctx.fillStyle = numG;
+  ctx.shadowBlur = 38;
+  ctx.shadowColor = "#7b00ff";
+  ctx.fillText(countStr, ICON_CX, COUNT_Y);
+  ctx.restore();
+
+  // Sub-label under the number
+  ctx.save();
+  ctx.font = `13px "DejaVu"`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillStyle = "rgba(191,128,255,0.55)";
+  ctx.fillText("Total Messages Tracked", ICON_CX, COUNT_Y + 84);
+  ctx.restore();
+
+  // ── Stat chips row ─────────────────────────────────────────────────────────
+  const CHIP_Y  = COUNT_Y + 112;
+  const CHIP_H  = 52;
+  const chipDefs = [
+    { label: "Human Members", value: (opts.memberCount - opts.botCount).toLocaleString(), color: "#00d4ff" },
+    { label: "Bots",          value: opts.botCount.toLocaleString(),                      color: "#bf80ff" },
+    { label: "Total Users",   value: opts.memberCount.toLocaleString(),                   color: "#80ffbf" },
   ];
-  let msy = ICON_CY + ICON_R + 26;
-  for (const ms of miniStats) {
+  const CHIP_W = 210, GAP = 24;
+  const totalChipW = chipDefs.length * CHIP_W + (chipDefs.length - 1) * GAP;
+  const chipStartX = (W - totalChipW) / 2;
+
+  for (let ci = 0; ci < chipDefs.length; ci++) {
+    const { label, value, color } = chipDefs[ci];
+    const cx = chipStartX + ci * (CHIP_W + GAP);
+
     ctx.save();
-    roundedRect(ctx, 18, msy, LEFT_W - 36, 30, 8);
-    ctx.fillStyle = "rgba(120,0,255,0.12)";
+    roundedRect(ctx, cx, CHIP_Y, CHIP_W, CHIP_H, 12);
+    ctx.fillStyle = "rgba(80,0,180,0.14)";
     ctx.fill();
-    ctx.strokeStyle = "rgba(120,0,255,0.22)";
+    ctx.strokeStyle = color + "44";
     ctx.lineWidth = 1;
     ctx.stroke();
     ctx.restore();
 
     ctx.save();
-    ctx.font = `bold 13px "DejaVu"`;
+    ctx.font = `bold 20px "DejaVu"`;
     ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    const mg = ctx.createLinearGradient(18, 0, LEFT_W - 18, 0);
-    mg.addColorStop(0, "#bf80ff");
-    mg.addColorStop(1, "#80cfff");
-    ctx.fillStyle = mg;
-    ctx.shadowBlur = 6;
-    ctx.shadowColor = "#7b00ff";
-    ctx.fillText(ms.value, LEFT_W / 2, msy + 10);
+    ctx.textBaseline = "top";
+    ctx.fillStyle = color;
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = color;
+    ctx.fillText(value, cx + CHIP_W / 2, CHIP_Y + 8);
     ctx.restore();
+
     ctx.save();
     ctx.font = `9px "DejaVu"`;
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
     ctx.fillStyle = "rgba(200,180,255,0.45)";
-    ctx.fillText(ms.label, LEFT_W / 2, msy + 28);
-    ctx.restore();
-
-    msy += 36;
-  }
-
-  // Vertical divider
-  ctx.save();
-  const divG = ctx.createLinearGradient(DIV_X, 20, DIV_X, H - 20);
-  divG.addColorStop(0, "transparent");
-  divG.addColorStop(0.25, "rgba(120,0,255,0.40)");
-  divG.addColorStop(0.75, "rgba(0,180,255,0.25)");
-  divG.addColorStop(1, "transparent");
-  ctx.strokeStyle = divG;
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(DIV_X, 20);
-  ctx.lineTo(DIV_X, H - 20);
-  ctx.stroke();
-  ctx.restore();
-
-  // ── RIGHT PANEL — leaderboard ─────────────────────────────────────────────
-  const RX = DIV_X + 16;
-  const RW = W - RX - 16;
-
-  // "TOP CHATTERS" header
-  ctx.save();
-  ctx.font = `bold 11px "DejaVu"`;
-  ctx.textAlign = "left";
-  ctx.textBaseline = "middle";
-  ctx.fillStyle = "rgba(191,128,255,0.55)";
-  ctx.fillText("\uD83C\uDFC6  TOP CHATTERS", RX + 2, 20);
-  ctx.restore();
-
-  // Thin header separator
-  ctx.save();
-  const hG = ctx.createLinearGradient(RX, 0, RX + RW, 0);
-  hG.addColorStop(0, "rgba(120,0,255,0.50)");
-  hG.addColorStop(1, "rgba(0,180,255,0.20)");
-  ctx.strokeStyle = hG;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(RX, 30);
-  ctx.lineTo(RX + RW, 30);
-  ctx.stroke();
-  ctx.restore();
-
-  // Column labels
-  ctx.save();
-  ctx.font = `9px "DejaVu"`;
-  ctx.textBaseline = "middle";
-  ctx.fillStyle = "rgba(191,128,255,0.40)";
-  ctx.textAlign = "left";  ctx.fillText("#", RX + 4, 44);
-  ctx.textAlign = "left";  ctx.fillText("MEMBER", RX + 78, 44);
-  ctx.textAlign = "right"; ctx.fillText("MESSAGES", RX + RW, 44);
-  ctx.restore();
-
-  const maxCount = TOP[0]?.messageCount || 1;
-  const MEDAL = ["#FFD700", "#C0C0C0", "#CD7F32"];
-  const AV_R = 17;
-  const BAR_START = RX + 270;
-  const BAR_MAX = RX + RW - 72;
-  const BAR_W = BAR_MAX - BAR_START;
-
-  for (let i = 0; i < TOP.length; i++) {
-    const m = TOP[i];
-    const ry = HEADER_H + i * ROW_H;
-    const rCY = ry + ROW_H / 2;
-
-    // Alternating row bg
-    if (i % 2 === 0) {
-      ctx.save();
-      roundedRect(ctx, RX, ry + 3, RW, ROW_H - 6, 8);
-      ctx.fillStyle = "rgba(120,0,255,0.06)";
-      ctx.fill();
-      ctx.restore();
-    }
-
-    // Rank number / medal
-    const rankColor = i < 3 ? MEDAL[i] : "rgba(180,140,255,0.55)";
-    ctx.save();
-    ctx.font = i < 3 ? `bold 14px "DejaVu"` : `12px "DejaVu"`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = rankColor;
-    if (i < 3) {
-      ctx.shadowBlur = 10;
-      ctx.shadowColor = rankColor;
-    }
-    ctx.fillText(`${i + 1}`, RX + 20, rCY);
-    ctx.restore();
-
-    // Avatar
-    const AVX = RX + 50;
-    await drawAvatar(ctx, m.avatarUrl, AVX, rCY, AV_R,
-      i < 3 ? MEDAL[i] : "#7b00ff",
-      i < 3 ? MEDAL[i] : "#00b4ff",
-      m.username[0]);
-
-    // Display name
-    ctx.save();
-    ctx.font = i < 3 ? `bold 13px "DejaVu"` : `12px "DejaVu"`;
-    ctx.textAlign = "left";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = i < 3 ? "#ffffff" : "rgba(230,210,255,0.85)";
-    if (i < 3) { ctx.shadowBlur = 6; ctx.shadowColor = MEDAL[i]; }
-    ctx.fillText(truncate(m.username, 18), RX + 80, rCY);
-    ctx.restore();
-
-    // Progress bar track
-    ctx.save();
-    roundedRect(ctx, BAR_START, rCY - 5, BAR_W, 10, 5);
-    ctx.fillStyle = "rgba(120,0,255,0.12)";
-    ctx.fill();
-    ctx.restore();
-
-    // Progress bar fill
-    const fillW = Math.max(4, Math.round((m.messageCount / maxCount) * BAR_W));
-    ctx.save();
-    roundedRect(ctx, BAR_START, rCY - 5, fillW, 10, 5);
-    const barFill = ctx.createLinearGradient(BAR_START, 0, BAR_START + fillW, 0);
-    if (i === 0) {
-      barFill.addColorStop(0, "#FFD700");
-      barFill.addColorStop(1, "#ffaa00");
-    } else if (i === 1) {
-      barFill.addColorStop(0, "#C0C0C0");
-      barFill.addColorStop(1, "#a0a0a0");
-    } else if (i === 2) {
-      barFill.addColorStop(0, "#CD7F32");
-      barFill.addColorStop(1, "#a0601e");
-    } else {
-      barFill.addColorStop(0, "#7b00ff");
-      barFill.addColorStop(1, "#00b4ff");
-    }
-    ctx.fillStyle = barFill;
-    ctx.shadowBlur = i < 3 ? 6 : 3;
-    ctx.shadowColor = i === 0 ? "#FFD700" : i === 1 ? "#C0C0C0" : i === 2 ? "#CD7F32" : "#7b00ff";
-    ctx.fill();
-    ctx.restore();
-
-    // Message count
-    ctx.save();
-    ctx.font = `bold 11px "DejaVu"`;
-    ctx.textAlign = "right";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = i < 3 ? MEDAL[i] : "rgba(191,128,255,0.70)";
-    if (i < 3) { ctx.shadowBlur = 6; ctx.shadowColor = MEDAL[i]; }
-    ctx.fillText(m.messageCount.toLocaleString(), RX + RW, rCY);
+    ctx.fillText(label, cx + CHIP_W / 2, CHIP_Y + CHIP_H - 4);
     ctx.restore();
   }
 
-  // ── Footer ────────────────────────────────────────────────────────────────
-  const FY = H - FOOTER_H;
-
-  // Footer separator
-  ctx.save();
-  const fG = ctx.createLinearGradient(RX, 0, RX + RW, 0);
-  fG.addColorStop(0, "rgba(120,0,255,0.40)");
-  fG.addColorStop(1, "rgba(0,180,255,0.15)");
-  ctx.strokeStyle = fG;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(RX, FY + 4);
-  ctx.lineTo(RX + RW, FY + 4);
-  ctx.stroke();
-  ctx.restore();
-
+  // ── Footer ──────────────────────────────────────────────────────────────────
   const updStr = opts.updatedAt.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: true });
   ctx.save();
   ctx.font = `9px "DejaVu"`;
-  ctx.textBaseline = "middle";
-  ctx.fillStyle = "rgba(191,128,255,0.30)";
-  ctx.textAlign = "left";  ctx.fillText("Priya Bot", RX + 2, FY + 18);
-  ctx.textAlign = "right"; ctx.fillText(`Updated: ${updStr} IST`, RX + RW, FY + 18);
+  ctx.textBaseline = "bottom";
+  ctx.fillStyle = "rgba(191,128,255,0.28)";
+  ctx.textAlign = "left";  ctx.fillText("Priya Bot", 24, H - 14);
+  ctx.textAlign = "right"; ctx.fillText(`Updated: ${updStr} IST`, W - 24, H - 14);
   ctx.restore();
 
   return canvas.toBuffer("image/png");

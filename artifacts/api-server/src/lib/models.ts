@@ -102,6 +102,8 @@ export interface IServerConfig extends Document {
   prefix: string;               // per-server command prefix (default "!")
   counterChannelId?: string;    // channel where live message counter image lives
   counterMessageId?: string;    // the pinned message ID being updated every 30s
+  aiEnabled: boolean;           // whether Priya responds to AI chat (default true)
+  aiDisabledChannels: string[]; // channels where AI is explicitly turned off
 }
 
 const ServerConfigSchema = new Schema<IServerConfig>(
@@ -119,6 +121,8 @@ const ServerConfigSchema = new Schema<IServerConfig>(
     prefix: { type: String, default: "!" },
     counterChannelId: { type: String, default: null },
     counterMessageId: { type: String, default: null },
+    aiEnabled: { type: Boolean, default: true },
+    aiDisabledChannels: { type: [String], default: [] },
   },
   { timestamps: true }
 );

@@ -14,7 +14,7 @@ import { getAiResponse } from "./ai-router";
 import { getPersonality } from "./personality";
 import { handlePrefixCommand, getServerPrefix, invalidatePrefixCache } from "./prefix-commands";
 import { generateCounterCard, generateAdoptCard } from "./cards";
-import type { CardUser, CounterMember } from "./cards";
+import type { CardUser } from "./cards";
 
 export let discordClient: Client | null = null;
 export let botStartTime = Date.now();
@@ -391,6 +391,39 @@ export async function initBot(): Promise<void> {
           },
         ],
       },
+      // ── AI toggle commands ────────────────────────────────────────────────────
+      {
+        name: "aioff",
+        description: "Disable Priya AI replies in this entire server (Admin only)",
+      },
+      {
+        name: "aion",
+        description: "Re-enable Priya AI replies in this entire server (Admin only)",
+      },
+      {
+        name: "aioffchannel",
+        description: "Disable Priya AI replies in a specific channel (Admin only)",
+        options: [
+          {
+            name: "channel",
+            description: "Channel to mute Priya AI in",
+            type: 7, // CHANNEL
+            required: true,
+          },
+        ],
+      },
+      {
+        name: "aionchannel",
+        description: "Re-enable Priya AI replies in a specific channel (Admin only)",
+        options: [
+          {
+            name: "channel",
+            description: "Channel to re-enable Priya AI in",
+            type: 7, // CHANNEL
+            required: true,
+          },
+        ],
+      },
     ]);
 
     // Start random ping scheduler
@@ -465,6 +498,15 @@ export async function initBot(): Promise<void> {
 
     const isDm = !message.guild;
     const guildId = isDm ? "dm" : message.guild!.id;
+
+    // Count every non-bot guild message regardless of whether the bot responds
+    if (!isDm) {
+      ServerConfig.findOneAndUpdate(
+        { guildId },
+        { $inc: { totalMessages: 1 } }
+      ).catch(() => {});
+    }
+
     const isMentioned = message.mentions.has(client.user!);
     const isReply =
       message.reference?.messageId &&
@@ -544,11 +586,16 @@ export async function initBot(): Promise<void> {
     const bannedCheck = await BotUser.findOne({ userId: message.author.id, banned: true });
     if (bannedCheck) return;
 
-    // Check NSFW setting for this channel
+    // Check server/channel AI toggle + NSFW setting
     let isNsfw = false;
     if (!isDm && message.channelId) {
       const serverConf = await ServerConfig.findOne({ guildId });
       isNsfw = serverConf?.nsfwChannels.includes(message.channelId) ?? false;
+
+      // AI disabled server-wide or in this specific channel
+      const aiOff = serverConf?.aiEnabled === false ||
+        (serverConf?.aiDisabledChannels ?? []).includes(message.channelId);
+      if (aiOff) return;
     }
 
     const userText = message.content
@@ -582,14 +629,6 @@ export async function initBot(): Promise<void> {
       );
 
       await saveHistory(message.author.id, guildId, "assistant", reply);
-
-      // Increment server message count
-      if (!isDm) {
-        await ServerConfig.findOneAndUpdate(
-          { guildId },
-          { $inc: { totalMessages: 1 } }
-        );
-      }
 
       // Very rarely react with an emoji (1 in 20 chance)
       if (Math.random() < 0.05) {
@@ -1026,8 +1065,6 @@ export async function initBot(): Promise<void> {
         const members = await guild.members.fetch().catch(() => guild.members.cache);
         const memberCount = members.size;
         const botCount = members.filter((m) => m.user.bot).size;
-        const memberMap = new Map(members.map((m) => [m.user.id, m]));
-        const topMembers = await getTopMembers(guildId, memberMap);
 
         const buf = await generateCounterCard({
           guildName: guild.name,
@@ -1036,7 +1073,6 @@ export async function initBot(): Promise<void> {
           memberCount,
           botCount,
           updatedAt: new Date(),
-          topMembers,
         });
 
         const posted = await channel.send({
@@ -1119,6 +1155,73 @@ export async function initBot(): Promise<void> {
         });
         return;
       }
+
+      // ── /aioff — Disable AI server-wide ───────────────────────────────────────
+      if (commandName === "aioff" || commandName === "aion") {
+        const isAdmin = interaction.memberPermissions?.has("Administrator") ?? false;
+        const isOwner = user.id === process.env.OWNER_DISCORD_ID;
+        const isServerOwner = interaction.guild?.ownerId === user.id;
+        if (!isAdmin && !isOwner && !isServerOwner) {
+          await interaction.reply({ content: "Yaar sirf admins ye kar sakte hain! 🔒", ephemeral: true });
+          return;
+        }
+        if (!guildId) {
+          await interaction.reply({ content: "Ye command sirf server mein use hoti hai.", ephemeral: true });
+          return;
+        }
+        const enabling = commandName === "aion";
+        await ServerConfig.findOneAndUpdate(
+          { guildId },
+          { $set: { aiEnabled: enabling } },
+          { upsert: true }
+        );
+        await interaction.reply({
+          content: enabling
+            ? "✅ Priya AI replies **on** kar di is server mein! Ab main baat karungi!"
+            : "🔇 Priya AI replies **off** kar di is server mein. Commands abhi bhi kaam karengi.",
+          ephemeral: false,
+        });
+        return;
+      }
+
+      // ── /aioffchannel / /aionchannel — Per-channel AI toggle ─────────────────
+      if (commandName === "aioffchannel" || commandName === "aionchannel") {
+        const isAdmin = interaction.memberPermissions?.has("Administrator") ?? false;
+        const isOwner = user.id === process.env.OWNER_DISCORD_ID;
+        const isServerOwner = interaction.guild?.ownerId === user.id;
+        if (!isAdmin && !isOwner && !isServerOwner) {
+          await interaction.reply({ content: "Yaar sirf admins ye kar sakte hain! 🔒", ephemeral: true });
+          return;
+        }
+        if (!guildId) {
+          await interaction.reply({ content: "Ye command sirf server mein use hoti hai.", ephemeral: true });
+          return;
+        }
+        const targetChannel = interaction.options.get("channel", true).value as string;
+        const disabling = commandName === "aioffchannel";
+        if (disabling) {
+          await ServerConfig.findOneAndUpdate(
+            { guildId },
+            { $addToSet: { aiDisabledChannels: targetChannel } },
+            { upsert: true }
+          );
+          await interaction.reply({
+            content: `🔇 Priya AI replies <#${targetChannel}> mein **off** kar di. Commands abhi bhi kaam karengi.`,
+            ephemeral: false,
+          });
+        } else {
+          await ServerConfig.findOneAndUpdate(
+            { guildId },
+            { $pull: { aiDisabledChannels: targetChannel } },
+            { upsert: true }
+          );
+          await interaction.reply({
+            content: `✅ Priya AI replies <#${targetChannel}> mein **on** kar di! Ab main wahan baat karungi!`,
+            ephemeral: false,
+          });
+        }
+        return;
+      }
     } catch (err) {
       logger.error({ err, commandName }, "Slash command error");
       // Try to inform the user — ignore if interaction already expired
@@ -1138,32 +1241,6 @@ export async function initBot(): Promise<void> {
   await client.login(token);
 }
 
-// ─── Top members helper ───────────────────────────────────────────────────────
-
-async function getTopMembers(
-  guildId: string,
-  guildMembers: Map<string, import("discord.js").GuildMember>
-): Promise<CounterMember[]> {
-  const top = await BotUser.find({ servers: guildId, banned: { $ne: true } })
-    .sort({ messageCount: -1 })
-    .limit(10)
-    .lean()
-    .catch(() => []);
-
-  return top.map((u) => {
-    const member = guildMembers.get(u.userId);
-    const avatarUrl =
-      member?.user.avatarURL({ size: 64 }) ??
-      u.avatarUrl ??
-      undefined;
-    return {
-      userId: u.userId,
-      username: member?.displayName ?? member?.user.username ?? u.username,
-      avatarUrl,
-      messageCount: u.messageCount ?? 0,
-    };
-  });
-}
 
 // ─── Random ping scheduler ────────────────────────────────────────────────────
 
@@ -1255,8 +1332,6 @@ function startCounterUpdater(client: Client) {
         const members = await guild.members.fetch().catch(() => guild.members.cache);
         const memberCount = members.size;
         const botCount = members.filter((m) => m.user.bot).size;
-        const memberMap = new Map(members.map((m) => [m.user.id, m]));
-        const topMembers = await getTopMembers(conf.guildId, memberMap);
 
         const buf = await generateCounterCard({
           guildName: guild.name,
@@ -1265,7 +1340,6 @@ function startCounterUpdater(client: Client) {
           memberCount,
           botCount,
           updatedAt: new Date(),
-          topMembers,
         });
 
         await msg.edit({

@@ -62,7 +62,6 @@ async function upsertUser(member: { id: string; username: string; discriminator?
     { userId: member.id },
     {
       $set: setFields,
-      $inc: { messageCount: 1 },
       $addToSet: { servers: guildId },
     },
     { upsert: true }

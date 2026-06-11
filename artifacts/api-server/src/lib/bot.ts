@@ -28,7 +28,8 @@ export interface DeletedMessage {
   content: string;
   deletedAt: number;
 }
-export const snipeStore = new Map<string, DeletedMessage>();
+const SNIPE_MAX = 5;
+export const snipeStore = new Map<string, DeletedMessage[]>();
 
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -513,13 +514,15 @@ export async function initBot(): Promise<void> {
       "Unknown";
     const avatarUrl =
       message.author?.displayAvatarURL({ size: 256, extension: "png" } as Parameters<typeof message.author.displayAvatarURL>[0]) ?? null;
-    snipeStore.set(message.channelId, {
+    const entry: DeletedMessage = {
       authorId: message.author!.id,
       authorName: displayName,
       authorAvatar: avatarUrl,
       content: message.content,
       deletedAt: Date.now(),
-    });
+    };
+    const prev = snipeStore.get(message.channelId) ?? [];
+    snipeStore.set(message.channelId, [entry, ...prev].slice(0, SNIPE_MAX));
   });
 
   // ─── Message handler ─────────────────────────────────────────────────────────

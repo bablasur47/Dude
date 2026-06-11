@@ -491,44 +491,66 @@ async function handleFamily(message: Message, client: Client, args: string[]) {
   const guildId = message.guild.id;
   const targetId = getMentionedUser(message, args) ?? message.author.id;
 
-  const rel = await UserRelationship.findOne({ userId: targetId, guildId });
-
-  // If the user is married, also fetch the spouse's children and merge them
-  // so both sides of a couple see all adopted children in the family tree.
-  const spouseRel = rel?.marriedTo
-    ? await UserRelationship.findOne({ userId: rel.marriedTo, guildId })
-    : null;
-
-  const ownChildIds: string[] = rel?.children ?? [];
-  const spouseChildIds: string[] = spouseRel?.children ?? [];
-  const mergedChildIds = [...new Set([...ownChildIds, ...spouseChildIds])];
-
-  const [userCard, spouseCard, parentCards, childCards] = await Promise.all([
-    resolveCardUser(targetId, client, guildId),
-    rel?.marriedTo ? resolveCardUser(rel.marriedTo, client, guildId) : Promise.resolve(null),
-    Promise.all((rel?.parents ?? []).map((id: string) => resolveCardUser(id, client, guildId))),
-    Promise.all(mergedChildIds.map((id: string) => resolveCardUser(id, client, guildId))),
-  ]);
-
   let status;
   try {
     status = await message.reply({ content: "Building family tree... 🌳" });
   } catch { return; }
 
   try {
-    const buf = await generateFamilyCard(userCard, parentCards, spouseCard, childCards);
+    const rel = await UserRelationship.findOne({ userId: targetId, guildId });
+    const spouseRel = rel?.marriedTo
+      ? await UserRelationship.findOne({ userId: rel.marriedTo, guildId })
+      : null;
+
+    // Direct parents (max 4)
+    const parentIds = [...new Set<string>(rel?.parents ?? [])].slice(0, 4);
+
+    // Grandparents: parents of each parent (max 6 total)
+    const gpSets = await Promise.all(
+      parentIds.map((pid) =>
+        UserRelationship.findOne({ userId: pid, guildId }).then((r) => r?.parents ?? [])
+      )
+    );
+    const grandparentIds = [...new Set<string>(gpSets.flat())].slice(0, 6);
+
+    // Children: merge user + spouse children (max 5)
+    const ownChildIds: string[] = rel?.children ?? [];
+    const spouseChildIds: string[] = spouseRel?.children ?? [];
+    const childIds = [...new Set<string>([...ownChildIds, ...spouseChildIds])].slice(0, 5);
+
+    // Grandchildren: children of each child (max 6 total)
+    const gcSets = await Promise.all(
+      childIds.map((cid) =>
+        UserRelationship.findOne({ userId: cid, guildId }).then((r) => r?.children ?? [])
+      )
+    );
+    const grandchildIds = [...new Set<string>(gcSets.flat())].slice(0, 6);
+
+    const [userCard, spouseCard, grandparentCards, parentCards, childCards, grandchildCards] =
+      await Promise.all([
+        resolveCardUser(targetId, client, guildId),
+        rel?.marriedTo ? resolveCardUser(rel.marriedTo, client, guildId) : Promise.resolve(null),
+        Promise.all(grandparentIds.map((id) => resolveCardUser(id, client, guildId))),
+        Promise.all(parentIds.map((id) => resolveCardUser(id, client, guildId))),
+        Promise.all(childIds.map((id) => resolveCardUser(id, client, guildId))),
+        Promise.all(grandchildIds.map((id) => resolveCardUser(id, client, guildId))),
+      ]);
+
+    const buf = await generateFamilyCard({
+      user: userCard,
+      grandparents: grandparentCards,
+      parents: parentCards,
+      spouse: spouseCard,
+      children: childCards,
+      grandchildren: grandchildCards,
+    });
     await status.edit({
       content: `🌳 **${userCard.username}**'s Family Tree`,
       files: [{ attachment: buf, name: "family.png" }],
     });
   } catch (err) {
     logger.error({ err }, "Family card failed");
-    const parts: string[] = [];
-    parts.push(`🌳 **${userCard.username}'s Family Tree**`);
-    parts.push(`👨‍👩‍👧 **Parents:** ${parentCards.length ? parentCards.map((p) => p.username).join(", ") : "None"}`);
-    parts.push(`💍 **Spouse:** ${spouseCard ? spouseCard.username : "Single"}`);
-    parts.push(`👶 **Children:** ${childCards.length ? childCards.map((c) => c.username).join(", ") : "None"}`);
-    await status.edit(parts.join("\n")).catch(() => {});
+    await status.edit("Yaar family tree mein kuch gadbad ho gayi! Try again later.").catch(() => {});
   }
 }
 
@@ -1171,16 +1193,21 @@ async function handleClearHistory(message: Message, args: string[]): Promise<voi
 
 // ─── !snipe ───────────────────────────────────────────────────────────────────
 
-async function handleSnipe(message: Message): Promise<void> {
+async function handleSnipe(message: Message, args: string[]): Promise<void> {
   if (!message.guild) {
     await message.reply("Ye command sirf server mein use hoti hai!");
     return;
   }
-  const deleted = snipeStore.get(message.channelId);
-  if (!deleted) {
+  const snipes = snipeStore.get(message.channelId);
+  if (!snipes || snipes.length === 0) {
     await message.reply("Is channel mein koi deleted message nahi mila yaar! 🤷");
     return;
   }
+
+  const requestedIdx = parseInt(args[0] ?? "1");
+  const idx = Math.max(0, Math.min(isNaN(requestedIdx) ? 0 : requestedIdx - 1, snipes.length - 1));
+  const deleted = snipes[idx];
+  const total = snipes.length;
 
   let status: Message | null = null;
   try {
@@ -1189,6 +1216,7 @@ async function handleSnipe(message: Message): Promise<void> {
     await status.delete().catch(() => {});
     if ("send" in message.channel) {
       await message.channel.send({
+        content: total > 1 ? `📋 Snipe **${idx + 1}/${total}** — use \`!snipe 2\`, \`!snipe 3\` etc. for older ones` : undefined,
         files: [{ attachment: buf, name: "snipe.png" }],
       });
     }
@@ -1196,7 +1224,7 @@ async function handleSnipe(message: Message): Promise<void> {
     logger.error({ err }, "Snipe card generation failed");
     if (status) {
       await status.edit(
-        `🔍 **${deleted.authorName}** said: ${deleted.content.slice(0, 200)}`
+        `🔍 [${idx + 1}/${total}] **${deleted.authorName}** said: ${deleted.content.slice(0, 200)}`
       ).catch(() => {});
     }
   }
@@ -1404,7 +1432,7 @@ export async function handlePrefixCommand(
         await handleResetCount(message);
         break;
       case "snipe":
-        await handleSnipe(message);
+        await handleSnipe(message, args);
         break;
       case "forceadopt":
         await handleForceAdopt(message, client, args);

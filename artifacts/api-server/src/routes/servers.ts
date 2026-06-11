@@ -4,6 +4,7 @@ import { ServerConfig } from "../lib/models";
 import { discordClient } from "../lib/bot";
 import { GetServerParams, GetNsfwChannelsParams } from "@workspace/api-zod";
 import { ChannelType } from "discord.js";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -106,15 +107,18 @@ router.get("/servers/:guildId/invite", requireAuth, async (req, res): Promise<vo
   }
 
   try {
+    // guild.members.me can be null right after bot restart — fetch it live if missing
+    const me = guild.members.me ?? await guild.members.fetchMe().catch(() => null);
+
     const textChannel = guild.channels.cache.find(
       (c) =>
         c.type === ChannelType.GuildText &&
-        guild.members.me != null &&
-        c.permissionsFor(guild.members.me)?.has("CreateInstantInvite") === true
+        me != null &&
+        c.permissionsFor(me)?.has("CreateInstantInvite") === true
     );
 
     if (!textChannel || !("createInvite" in textChannel)) {
-      res.status(403).json({ error: "No channel available to create invite" });
+      res.status(403).json({ error: "No channel available to create invite — bot may need CreateInstantInvite permission" });
       return;
     }
 
@@ -126,6 +130,7 @@ router.get("/servers/:guildId/invite", requireAuth, async (req, res): Promise<vo
 
     res.json({ inviteUrl: invite.url });
   } catch (err) {
+    logger.error({ err }, "Failed to create invite link");
     res.status(500).json({ error: "Failed to create invite link" });
   }
 });

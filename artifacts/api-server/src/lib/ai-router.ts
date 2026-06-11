@@ -10,9 +10,34 @@ export interface AiMessage {
 
 type Provider = "groq" | "gemini" | "nvidia";
 
-const GROQ_MODELS = ["llama-3.3-70b-versatile", "llama3-70b-8192", "mixtral-8x7b-32768"];
-const GEMINI_MODELS = ["gemini-1.5-flash", "gemini-1.5-pro"];
+const GROQ_MODELS = ["llama-3.3-70b-versatile", "llama3-70b-8192", "llama3-8b-8192"];
+const GEMINI_MODELS = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-latest"];
 const NVIDIA_MODELS = ["meta/llama-3.3-70b-instruct", "meta/llama3-70b-instruct"];
+
+// Only skip to the next model for model-availability errors.
+// Auth errors (invalid key, quota, etc.) should be rethrown immediately.
+function isModelNotAvailableError(errMsg: string): boolean {
+  const lower = errMsg.toLowerCase();
+  const isAuthError =
+    lower.includes("api_key_invalid") ||
+    lower.includes("invalid api key") ||
+    lower.includes("invalid_api_key") ||
+    lower.includes("permission_denied") ||
+    lower.includes("permission denied") ||
+    lower.includes("authentication") ||
+    lower.includes("unauthorized") ||
+    lower.includes("quota") ||
+    lower.includes("billing") ||
+    lower.includes("401") ||
+    lower.includes("403");
+  const isModelError =
+    lower.includes("model not found") ||
+    lower.includes("model is not") ||
+    lower.includes("not supported for") ||
+    lower.includes("does not exist") ||
+    lower.includes("deprecated");
+  return isModelError && !isAuthError;
+}
 
 async function getKeys(provider: Provider) {
   const keys = await ApiKey.find({ provider, enabled: true }).sort({ errorCount: 1, lastUsed: 1 });
@@ -39,7 +64,7 @@ async function callGroq(apiKey: string, messages: AiMessage[]): Promise<string> 
       return completion.choices[0]?.message?.content ?? "";
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      if (errMsg.includes("model") || errMsg.includes("not found")) continue;
+      if (isModelNotAvailableError(errMsg)) continue;
       throw err;
     }
   }
@@ -67,7 +92,7 @@ async function callGemini(apiKey: string, messages: AiMessage[]): Promise<string
       return result.response.text();
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      if (errMsg.includes("model") || errMsg.includes("not found")) continue;
+      if (isModelNotAvailableError(errMsg)) continue;
       throw err;
     }
   }

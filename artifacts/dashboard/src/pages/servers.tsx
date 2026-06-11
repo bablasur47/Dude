@@ -2,9 +2,63 @@ import { useGetServers } from "@workspace/api-client-react";
 import { Link } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Server, Users, MessageSquare } from "lucide-react";
-import { useState } from "react";
+import { Search, Server, Users, MessageSquare, Link2, Copy, Check } from "lucide-react";
+import { useState, useCallback } from "react";
+
+function InviteButton({ guildId }: { guildId: string }) {
+  const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleInvite = useCallback(async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/servers/${guildId}/invite`, { credentials: "include" });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error ?? "Failed");
+      }
+      const { inviteUrl } = await res.json();
+      await navigator.clipboard.writeText(inviteUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Error");
+      setTimeout(() => setError(null), 3000);
+    } finally {
+      setLoading(false);
+    }
+  }, [guildId]);
+
+  if (error) {
+    return (
+      <span className="text-xs text-red-400 truncate max-w-[120px]">{error}</span>
+    );
+  }
+
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      className="h-7 px-2 text-xs gap-1 border-border/50 bg-transparent hover:bg-primary/10 hover:border-primary/50 hover:text-primary transition-all"
+      onClick={handleInvite}
+      disabled={loading}
+    >
+      {copied ? (
+        <><Check className="w-3 h-3 text-green-400" /><span className="text-green-400">Copied!</span></>
+      ) : loading ? (
+        <><Link2 className="w-3 h-3 animate-pulse" />Getting...</>
+      ) : (
+        <><Copy className="w-3 h-3" />Invite Link</>
+      )}
+    </Button>
+  );
+}
 
 export function Servers() {
   const { data: servers, isLoading } = useGetServers();
@@ -35,7 +89,7 @@ export function Servers() {
 
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-32 w-full rounded-xl bg-card/30" />)}
+          {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-36 w-full rounded-xl bg-card/30" />)}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -53,9 +107,12 @@ export function Servers() {
                   <div className="flex-1 min-w-0">
                     <h3 className="font-semibold text-base truncate group-hover:text-primary transition-colors">{server.name}</h3>
                     <p className="text-xs text-muted-foreground font-mono mt-0.5">{server.guildId}</p>
-                    <div className="flex items-center gap-3 mt-3 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
                       <span className="flex items-center gap-1"><Users className="w-3.5 h-3.5" /> {server.memberCount.toLocaleString()}</span>
                       <span className="flex items-center gap-1"><MessageSquare className="w-3.5 h-3.5" /> {(server.messageCount ?? 0).toLocaleString()}</span>
+                    </div>
+                    <div className="mt-2" onClick={(e) => e.preventDefault()}>
+                      <InviteButton guildId={server.guildId} />
                     </div>
                   </div>
                 </CardContent>

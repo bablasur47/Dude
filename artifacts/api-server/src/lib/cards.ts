@@ -1830,3 +1830,118 @@ export async function generateActionCard(
 
   return canvas.toBuffer("image/png");
 }
+
+// ─── Snipe card ───────────────────────────────────────────────────────────────
+
+export interface SnipeData {
+  authorName: string;
+  authorAvatar: string | null;
+  content: string;
+  deletedAt: number;
+}
+
+export async function generateSnipeCard(data: SnipeData): Promise<Buffer> {
+  const W = 620;
+  const PADDING = 16;
+  const AV_R = 20;
+  const AV_CX = PADDING + AV_R;
+  const MSG_X = AV_CX + AV_R + 12;
+  const MSG_W = W - MSG_X - PADDING;
+  const LINE_H = 20;
+  const CONTENT_FONT_SIZE = 15;
+
+  const tempCanvas = createCanvas(W, 100);
+  const tempCtx = tempCanvas.getContext("2d");
+  tempCtx.font = `${CONTENT_FONT_SIZE}px "DejaVu"`;
+  const rawLines = data.content.split("\n");
+  const contentLines: string[] = [];
+  for (const raw of rawLines) {
+    const wrapped = wrapText(tempCtx, raw || " ", MSG_W);
+    contentLines.push(...wrapped);
+  }
+
+  const TOP_PAD = 16;
+  const NAME_Y = TOP_PAD + AV_R;
+  const CONTENT_Y = NAME_Y + 6;
+  const contentBlockH = contentLines.length * LINE_H;
+  const H = Math.max(CONTENT_Y + contentBlockH + TOP_PAD, 80);
+
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext("2d");
+
+  ctx.fillStyle = "#313338";
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = "#f04747";
+  ctx.fillRect(0, 0, 3, H);
+
+  const AV_CY = NAME_Y;
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(AV_CX, AV_CY, AV_R, 0, Math.PI * 2);
+  ctx.closePath();
+  ctx.clip();
+
+  const avatarBuf = await fetchAvatar(data.authorAvatar, 128);
+  let avatarDrawn = false;
+  if (avatarBuf) {
+    try {
+      const img = await loadImage(avatarBuf);
+      ctx.drawImage(img, AV_CX - AV_R, AV_CY - AV_R, AV_R * 2, AV_R * 2);
+      avatarDrawn = true;
+    } catch { /* fallback */ }
+  }
+  if (!avatarDrawn) {
+    ctx.fillStyle = "#5865f2";
+    ctx.fillRect(AV_CX - AV_R, AV_CY - AV_R, AV_R * 2, AV_R * 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = `bold 18px "DejaVu"`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText((data.authorName[0] ?? "?").toUpperCase(), AV_CX, AV_CY);
+  }
+  ctx.restore();
+
+  ctx.save();
+  ctx.font = `bold 15px "DejaVu"`;
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(truncate(data.authorName, 32), MSG_X, NAME_Y + 5);
+  const nameWidth = ctx.measureText(truncate(data.authorName, 32)).width;
+  ctx.restore();
+
+  const elapsed = Math.round((Date.now() - data.deletedAt) / 1000);
+  const timeLabel =
+    elapsed < 60 ? `${elapsed}s ago` :
+    elapsed < 3600 ? `${Math.round(elapsed / 60)}m ago` :
+    `${Math.round(elapsed / 3600)}h ago`;
+
+  ctx.save();
+  ctx.font = `11px "DejaVu"`;
+  ctx.fillStyle = "#a3a6aa";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(`deleted • ${timeLabel}`, MSG_X + nameWidth + 10, NAME_Y + 5);
+  ctx.restore();
+
+  ctx.save();
+  ctx.font = `${CONTENT_FONT_SIZE}px "DejaVu"`;
+  ctx.fillStyle = "#dcddde";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  for (let i = 0; i < contentLines.length; i++) {
+    ctx.fillText(contentLines[i], MSG_X, CONTENT_Y + (i + 1) * LINE_H);
+  }
+  ctx.restore();
+
+  ctx.save();
+  ctx.font = `10px "DejaVu"`;
+  ctx.fillStyle = "#4f545c";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "bottom";
+  ctx.fillText("Priya Snipe", W - PADDING, H - 4);
+  ctx.restore();
+
+  return canvas.toBuffer("image/png");
+}

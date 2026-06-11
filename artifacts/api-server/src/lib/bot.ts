@@ -19,6 +19,17 @@ import type { CardUser, CounterMember } from "./cards";
 export let discordClient: Client | null = null;
 export let botStartTime = Date.now();
 
+// ─── Snipe store (deleted messages, keyed by channelId) ───────────────────────
+
+export interface DeletedMessage {
+  authorId: string;
+  authorName: string;
+  authorAvatar: string | null;
+  content: string;
+  deletedAt: number;
+}
+export const snipeStore = new Map<string, DeletedMessage>();
+
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 // ─── History helpers ──────────────────────────────────────────────────────────
@@ -490,6 +501,27 @@ export async function initBot(): Promise<void> {
     await (channel as TextChannel).send(greeting);
   });
 
+  // ─── Message Delete (snipe) ──────────────────────────────────────────────────
+
+  client.on(Events.MessageDelete, (message) => {
+    if (message.partial) return;
+    if (message.author?.bot) return;
+    if (!message.content) return;
+    const displayName =
+      (message.member as GuildMember | null)?.displayName ??
+      message.author?.username ??
+      "Unknown";
+    const avatarUrl =
+      message.author?.displayAvatarURL({ size: 256, extension: "png" } as Parameters<typeof message.author.displayAvatarURL>[0]) ?? null;
+    snipeStore.set(message.channelId, {
+      authorId: message.author!.id,
+      authorName: displayName,
+      authorAvatar: avatarUrl,
+      content: message.content,
+      deletedAt: Date.now(),
+    });
+  });
+
   // ─── Message handler ─────────────────────────────────────────────────────────
 
   client.on(Events.MessageCreate, async (message: Message) => {
@@ -586,6 +618,7 @@ export async function initBot(): Promise<void> {
         "rank", "m",
         "lb",
         "resetcount",
+        "snipe",
       ];
       if (prefixCommandNames.includes(command)) {
         const bannedCheck = await BotUser.findOne({ userId: message.author.id, banned: true });

@@ -19,9 +19,11 @@ import {
   generateRoastCard,
   generateActionCard,
   generateCounterCard,
+  generateSnipeCard,
   type CardUser,
   type CounterMember,
 } from "./cards";
+import { snipeStore } from "./bot";
 import { getAiResponse } from "./ai-router";
 import { getPersonality } from "./personality";
 
@@ -902,6 +904,7 @@ async function handleHelp(message: Message, prefix: string): Promise<void> {
     { name: `${prefix}8ball <sawaal>`, value: "Magic 8-ball se poochho 🎱" },
     { name: `${prefix}rate <kuch bhi>`, value: "Priya kisi bhi cheez ko rate karegi ⭐" },
     { name: `${prefix}coinflip`, value: "Heads ya tails? 🪙" },
+    { name: `${prefix}snipe`, value: "Last deleted message dekho 🔍" },
     { name: `${prefix}help`, value: "Ye help message 😊" },
   ];
 
@@ -928,6 +931,37 @@ async function handleHelp(message: Message, prefix: string): Promise<void> {
   }
 
   await message.reply({ embeds: [embed] });
+}
+
+// ─── !snipe ───────────────────────────────────────────────────────────────────
+
+async function handleSnipe(message: Message): Promise<void> {
+  if (!message.guild) {
+    await message.reply("Ye command sirf server mein use hoti hai!");
+    return;
+  }
+  const deleted = snipeStore.get(message.channelId);
+  if (!deleted) {
+    await message.reply("Is channel mein koi deleted message nahi mila yaar! 🤷");
+    return;
+  }
+
+  let status: Message | null = null;
+  try {
+    status = await message.reply("Snooping around... 🔍");
+    const buf = await generateSnipeCard(deleted);
+    await status.delete().catch(() => {});
+    await message.channel.send({
+      files: [{ attachment: buf, name: "snipe.png" }],
+    });
+  } catch (err) {
+    logger.error({ err }, "Snipe card generation failed");
+    if (status) {
+      await status.edit(
+        `🔍 **${deleted.authorName}** said: ${deleted.content.slice(0, 200)}`
+      ).catch(() => {});
+    }
+  }
 }
 
 // ─── Main dispatcher ──────────────────────────────────────────────────────────
@@ -1130,6 +1164,9 @@ export async function handlePrefixCommand(
         break;
       case "resetcount":
         await handleResetCount(message);
+        break;
+      case "snipe":
+        await handleSnipe(message);
         break;
     }
   } catch (err) {

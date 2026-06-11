@@ -3,6 +3,7 @@ import { requireAuth } from "../lib/auth";
 import { ServerConfig } from "../lib/models";
 import { discordClient } from "../lib/bot";
 import { GetServerParams, GetNsfwChannelsParams } from "@workspace/api-zod";
+import { ChannelType } from "discord.js";
 
 const router: IRouter = Router();
 
@@ -88,6 +89,45 @@ router.get("/servers/:guildId/channels/nsfw", requireAuth, async (req, res): Pro
     })) ?? channels;
 
   res.json(allChannels);
+});
+
+router.get("/servers/:guildId/invite", requireAuth, async (req, res): Promise<void> => {
+  const rawId = Array.isArray(req.params.guildId) ? req.params.guildId[0] : req.params.guildId;
+  const params = GetServerParams.safeParse({ guildId: rawId });
+  if (!params.success) {
+    res.status(400).json({ error: "Invalid guild ID" });
+    return;
+  }
+
+  const guild = discordClient?.guilds.cache.get(params.data.guildId);
+  if (!guild) {
+    res.status(404).json({ error: "Guild not found in bot cache" });
+    return;
+  }
+
+  try {
+    const textChannel = guild.channels.cache.find(
+      (c) =>
+        c.type === ChannelType.GuildText &&
+        guild.members.me != null &&
+        c.permissionsFor(guild.members.me)?.has("CreateInstantInvite") === true
+    );
+
+    if (!textChannel || !("createInvite" in textChannel)) {
+      res.status(403).json({ error: "No channel available to create invite" });
+      return;
+    }
+
+    const invite = await (textChannel as { createInvite: (opts: object) => Promise<{ url: string }> }).createInvite({
+      maxAge: 86400,
+      maxUses: 1,
+      unique: true,
+    });
+
+    res.json({ inviteUrl: invite.url });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to create invite link" });
+  }
 });
 
 export default router;

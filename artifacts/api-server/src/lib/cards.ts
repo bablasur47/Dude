@@ -1544,6 +1544,23 @@ export async function generateCounterCard(opts: {
 
 // ─── Shared text wrap helper ──────────────────────────────────────────────────
 
+function splitLines(ctx: SKRSContext2D, text: string, maxWidth: number): string[] {
+  const words = text.split(" ");
+  const lines: string[] = [];
+  let line = "";
+  for (const word of words) {
+    const test = line + word + " ";
+    if (ctx.measureText(test).width > maxWidth && line !== "") {
+      lines.push(line.trim());
+      line = word + " ";
+    } else {
+      line = test;
+    }
+  }
+  if (line.trim()) lines.push(line.trim());
+  return lines;
+}
+
 function wrapText(
   ctx: SKRSContext2D,
   text: string,
@@ -1856,7 +1873,7 @@ export async function generateSnipeCard(data: SnipeData): Promise<Buffer> {
   const rawLines = data.content.split("\n");
   const contentLines: string[] = [];
   for (const raw of rawLines) {
-    const wrapped = wrapText(tempCtx, raw || " ", MSG_W);
+    const wrapped = splitLines(tempCtx, raw || " ", MSG_W);
     contentLines.push(...wrapped);
   }
 

@@ -951,9 +951,11 @@ async function handleSnipe(message: Message): Promise<void> {
     status = await message.reply("Snooping around... 🔍");
     const buf = await generateSnipeCard(deleted);
     await status.delete().catch(() => {});
-    await message.channel.send({
-      files: [{ attachment: buf, name: "snipe.png" }],
-    });
+    if ("send" in message.channel) {
+      await message.channel.send({
+        files: [{ attachment: buf, name: "snipe.png" }],
+      });
+    }
   } catch (err) {
     logger.error({ err }, "Snipe card generation failed");
     if (status) {

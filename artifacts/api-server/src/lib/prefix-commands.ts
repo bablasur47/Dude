@@ -8,7 +8,7 @@ import {
   EmbedBuilder,
 } from "discord.js";
 import { logger } from "./logger";
-import { BotUser, UserRelationship, ServerConfig } from "./models";
+import { BotUser, UserRelationship, ServerConfig, ChatHistory } from "./models";
 import {
   calculateLovePercentage,
   generateShipCard,
@@ -886,51 +886,287 @@ async function handleCoinflip(message: Message): Promise<void> {
 
 async function handleHelp(message: Message, prefix: string): Promise<void> {
   const siteUrl = process.env.SITE_URL?.replace(/\/$/, "");
+  const isOwner = message.author.id === process.env.OWNER_DISCORD_ID;
 
-  const commands = [
-    { name: `${prefix}ship @user1 @user2`, value: "Dono ki compatibility check karo 💘" },
-    { name: `${prefix}marry @user`, value: "Kisi ko propose karo 💍" },
-    { name: `${prefix}divorce`, value: "Apne partner se alag ho jao 💔" },
-    { name: `${prefix}adopt @user`, value: "Kisi ko apna bachcha banao 👶" },
-    { name: `${prefix}unadopt @user`, value: "Bachche ko unadopt karo (parent side) 🚪" },
-    { name: `${prefix}leave`, value: "Apne parents se bhaag jao (child side) 🏃" },
-    { name: `${prefix}parents [@user]`, value: "Apne ya kisi ke parents dekho 👨‍👩‍👧" },
-    { name: `${prefix}family [@user]`, value: "Apna pura parivaar dekho 🏠" },
-    { name: `${prefix}profile [@user]`, value: "Apna ya kisi ka profile card dekho ✨" },
-    { name: `${prefix}marriagecard [@user]`, value: "Apna ya kisi ka marriage card dekho 💍" },
-    { name: `${prefix}roast @user`, value: "Kisi ko AI se roast karwao 🔥" },
-    { name: `${prefix}hug @user`, value: "Kisi ko hug karo 🤗" },
-    { name: `${prefix}slap @user`, value: "Kisi ko thappad maro 👋" },
-    { name: `${prefix}8ball <sawaal>`, value: "Magic 8-ball se poochho 🎱" },
-    { name: `${prefix}rate <kuch bhi>`, value: "Priya kisi bhi cheez ko rate karegi ⭐" },
-    { name: `${prefix}coinflip`, value: "Heads ya tails? 🪙" },
-    { name: `${prefix}snipe`, value: "Last deleted message dekho 🔍" },
-    { name: `${prefix}help`, value: "Ye help message 😊" },
+  type HelpPage = { id: string; label: string; emoji: string; color: number; title: string; desc: string; fields: { name: string; value: string; inline?: boolean }[] };
+
+  const pages: HelpPage[] = [
+    {
+      id: "fun",
+      label: "Fun & Games",
+      emoji: "🎮",
+      color: 0xe74c3c,
+      title: "🎮 Fun & Games",
+      desc: "Timepass ke liye best commands hai yaar!",
+      fields: [
+        { name: "`" + prefix + "roast @user`", value: "Kisi ko AI se roast karwao 🔥", inline: true },
+        { name: "`" + prefix + "hug @user`", value: "Kisi ko hug karo 🤗", inline: true },
+        { name: "`" + prefix + "slap @user`", value: "Kisi ko thappad maro 👋", inline: true },
+        { name: "`" + prefix + "ship @user1 @user2`", value: "Dono ki compatibility check karo 💘", inline: true },
+        { name: "`" + prefix + "8ball <sawaal>`", value: "Magic 8-ball se poochho 🎱", inline: true },
+        { name: "`" + prefix + "rate <kuch bhi>`", value: "Priya rate karegi ⭐", inline: true },
+        { name: "`" + prefix + "coinflip`", value: "Heads ya tails? 🪙", inline: true },
+        { name: "`" + prefix + "snipe`", value: "Last deleted message dekho 🔍", inline: true },
+        { name: "`" + prefix + "rank [@user]`", value: "Server mein apna rank dekho 📊", inline: true },
+        { name: "`" + prefix + "lb`", value: "Server leaderboard dekho 🏆", inline: true },
+        ...(siteUrl ? [{ name: "🌐 Portal", value: `[User Portal](${siteUrl}/dashboard/portal) — Chat history & settings`, inline: false }] : []),
+      ],
+    },
+    {
+      id: "family",
+      label: "Family",
+      emoji: "👨‍👩‍👧",
+      color: 0x2ecc71,
+      title: "👨‍👩‍👧 Family System",
+      desc: "Apna parivaar banao, rishtey nibhao!",
+      fields: [
+        { name: "`" + prefix + "marry @user`", value: "Kisi ko propose karo 💍", inline: true },
+        { name: "`" + prefix + "divorce`", value: "Partner se alag ho jao 💔", inline: true },
+        { name: "`" + prefix + "adopt @user`", value: "Kisi ko apna bachcha banao 👶", inline: true },
+        { name: "`" + prefix + "unadopt @user`", value: "Bachche ko unadopt karo 🚪", inline: true },
+        { name: "`" + prefix + "leave`", value: "Apne parents se bhaag jao 🏃", inline: true },
+        { name: "`" + prefix + "parents [@user]`", value: "Parents dekho 👨‍👩‍👧", inline: true },
+        { name: "`" + prefix + "family [@user]`", value: "Pura parivaar dekho 🏠", inline: true },
+        { name: "`" + prefix + "profile [@user]`", value: "Profile card dekho ✨", inline: true },
+        { name: "`" + prefix + "marriagecard [@user]`", value: "Marriage card dekho 💍", inline: true },
+      ],
+    },
+    {
+      id: "slash",
+      label: "Slash Commands",
+      emoji: "⚡",
+      color: 0x3498db,
+      title: "⚡ Slash Commands",
+      desc: "Ye `/` se start hote hain — Discord mein type karo `/` aur dekho!",
+      fields: [
+        { name: "`/nsfw enable:true/false`", value: "Channel mein NSFW on/off karo 🔞", inline: true },
+        { name: "`/reset`", value: "Apni chat history Priya ke saath reset karo 🗑️", inline: true },
+        { name: "`/truth`", value: "Priya se sach poochho 🤔", inline: true },
+        { name: "`/dare`", value: "Priya se dare lo 😈", inline: true },
+        { name: "`/setprefix <prefix>`", value: "Server prefix change karo (Admin) ⚙️", inline: true },
+        { name: "`/setpingchannel #channel`", value: "Random ping channel set karo 🎯", inline: true },
+        { name: "`/setwelcome #channel`", value: "Welcome channel set karo 👋", inline: true },
+        { name: "`/aioff` / `/aion`", value: "Priya AI replies on/off karo (Admin) 🤖", inline: true },
+        { name: "`/say <msg> [#channel]`", value: "Priya se kuch bulwao (Admin) 🗣️", inline: true },
+        { name: "`/resetserver`", value: "Server ki saari history clear karo (Admin) ⚠️", inline: true },
+      ],
+    },
   ];
 
-  const embed = new EmbedBuilder()
-    .setColor(0x9b59b6)
-    .setTitle("✨ Priya — Commands")
-    .setDescription(
-      "Heyy! Main Priya hoon, tumhari AI dost 💕\nYe rahi meri saari commands:"
-    )
-    .addFields(
-      commands.map((c) => ({ name: `\`${c.name}\``, value: c.value, inline: false }))
-    )
-    .setFooter({ text: `Prefix: ${prefix}  •  Priya Bot` });
-
-  if (siteUrl) {
-    embed.addFields({
-      name: "🌐 Dashboard & User Portal",
-      value: [
-        `**[User Portal](${siteUrl}/portal)** — Apni chat history dekho, settings change karo`,
-        `**[Owner Dashboard](${siteUrl}/login)** — Bot manage karo`,
-      ].join("\n"),
-      inline: false,
+  if (isOwner) {
+    pages.push({
+      id: "owner",
+      label: "Owner",
+      emoji: "🔒",
+      color: 0xf39c12,
+      title: "🔒 Owner Commands",
+      desc: "Sirf bot owner ke liye — baaki log door raho! 😤",
+      fields: [
+        { name: "`" + prefix + "forceadopt @parent @child`", value: "Kisi ko forcefully adopt karwao 👑", inline: true },
+        { name: "`" + prefix + "botban <userid>`", value: "Kisi ko bot se ban karo 🔨", inline: true },
+        { name: "`" + prefix + "botunban <userid>`", value: "Bot ban hatao ✅", inline: true },
+        { name: "`" + prefix + "clearhistory <userid>`", value: "Kisi ki saari chat history delete karo 🗑️", inline: true },
+        { name: "`/ping`", value: "Bot status check karo 🏓", inline: true },
+        { name: "`/announce <msg>`", value: "Saare servers mein broadcast karo 📢", inline: true },
+        { name: "`/ban @user`", value: "Kisi ko bot se ban karo 🔨", inline: true },
+        { name: "`/unban <userid>`", value: "Ban hatao ✅", inline: true },
+        { name: "`/serverlist`", value: "Saare servers ki list dekho 📋", inline: true },
+        { name: "`/clearhistory <userid>`", value: "Kisi ki chat history clear karo 🗑️", inline: true },
+        { name: "`/forceadopt @parent @child`", value: "Force adoption karo 👑", inline: true },
+        { name: "`/setprovider <provider>`", value: "AI provider change karo 🤖", inline: true },
+        ...(siteUrl ? [{ name: "🌐 Dashboard", value: `[Owner Dashboard](${siteUrl}/dashboard/login)`, inline: false }] : []),
+      ],
     });
   }
 
-  await message.reply({ embeds: [embed] });
+  let currentPage = 0;
+
+  function buildEmbed(page: HelpPage, pageNum: number): EmbedBuilder {
+    return new EmbedBuilder()
+      .setColor(page.color)
+      .setTitle(page.title)
+      .setDescription(page.desc)
+      .addFields(page.fields)
+      .setFooter({ text: `Page ${pageNum + 1}/${pages.length}  •  Prefix: ${prefix}  •  Priya Bot` })
+      .setTimestamp();
+  }
+
+  function buildRow(activePage: number): ActionRowBuilder<ButtonBuilder> {
+    const row = new ActionRowBuilder<ButtonBuilder>();
+    for (let i = 0; i < pages.length; i++) {
+      row.addComponents(
+        new ButtonBuilder()
+          .setCustomId(`help_page_${i}`)
+          .setLabel(pages[i].label)
+          .setEmoji(pages[i].emoji)
+          .setStyle(i === activePage ? ButtonStyle.Primary : ButtonStyle.Secondary)
+          .setDisabled(i === activePage)
+      );
+    }
+    return row;
+  }
+
+  const reply = await message.reply({
+    embeds: [buildEmbed(pages[currentPage], currentPage)],
+    components: [buildRow(currentPage)],
+  });
+
+  const collector = reply.createMessageComponentCollector({
+    componentType: ComponentType.Button,
+    filter: (i) => i.user.id === message.author.id && i.customId.startsWith("help_page_"),
+    time: 120_000,
+  });
+
+  collector.on("collect", async (interaction) => {
+    const idx = parseInt(interaction.customId.replace("help_page_", ""), 10);
+    if (isNaN(idx) || idx < 0 || idx >= pages.length) return;
+    currentPage = idx;
+    await interaction.update({
+      embeds: [buildEmbed(pages[currentPage], currentPage)],
+      components: [buildRow(currentPage)],
+    });
+  });
+
+  collector.on("end", async () => {
+    const disabledRow = new ActionRowBuilder<ButtonBuilder>();
+    for (let i = 0; i < pages.length; i++) {
+      disabledRow.addComponents(
+        new ButtonBuilder()
+          .setCustomId(`help_page_expired_${i}`)
+          .setLabel(pages[i].label)
+          .setEmoji(pages[i].emoji)
+          .setStyle(i === currentPage ? ButtonStyle.Primary : ButtonStyle.Secondary)
+          .setDisabled(true)
+      );
+    }
+    await reply.edit({ components: [disabledRow] }).catch(() => {});
+  });
+}
+
+// ─── Owner-only prefix commands ───────────────────────────────────────────────
+
+async function isOwnerCheck(message: Message): Promise<boolean> {
+  if (message.author.id !== process.env.OWNER_DISCORD_ID) {
+    await message.reply("Yaar ye command sirf bot owner ke liye hai! Tu owner nahi hai 😤");
+    return false;
+  }
+  return true;
+}
+
+async function handleForceAdopt(message: Message, client: Client, args: string[]): Promise<void> {
+  if (!(await isOwnerCheck(message))) return;
+  if (!message.guild) {
+    await message.reply("Ye command sirf server mein use hoti hai!");
+    return;
+  }
+
+  const mentionedIds = message.mentions.users.map((u) => u.id);
+  if (mentionedIds.length < 2) {
+    await message.reply("Usage: `forceadopt @parent @child` — dono ko mention karo!");
+    return;
+  }
+
+  const [parentId, childId] = mentionedIds;
+  if (parentId === childId) {
+    await message.reply("Parent aur child same nahi ho sakte!");
+    return;
+  }
+
+  const guildId = message.guild.id;
+  const status = await message.reply("Processing... ⏳");
+
+  await Promise.all([
+    UserRelationship.findOneAndUpdate(
+      { userId: parentId, guildId },
+      { $addToSet: { children: childId } },
+      { upsert: true }
+    ),
+    UserRelationship.findOneAndUpdate(
+      { userId: childId, guildId },
+      { $addToSet: { parents: parentId } },
+      { upsert: true }
+    ),
+  ]);
+
+  const parentUser = client.users.cache.get(parentId) ?? await client.users.fetch(parentId).catch(() => null);
+  const childUser = client.users.cache.get(childId) ?? await client.users.fetch(childId).catch(() => null);
+
+  const parentName = parentUser?.displayName ?? parentUser?.username ?? `User#${parentId.slice(-4)}`;
+  const childName = childUser?.displayName ?? childUser?.username ?? `User#${childId.slice(-4)}`;
+
+  try {
+    const toCard = (u: import("discord.js").User): CardUser => ({
+      id: u.id,
+      username: u.displayName ?? u.username,
+      avatarUrl: u.avatarURL({ size: 256 }) ?? undefined,
+    });
+    if (parentUser && childUser) {
+      const buf = await generateAdoptCard(toCard(parentUser), toCard(childUser));
+      await status.edit({
+        content: `✅ Done! **${parentName}** ne **${childName}** ko forcefully adopt kar liya! 👑`,
+        files: [{ attachment: buf, name: "force-adopt.png" }],
+      });
+      return;
+    }
+  } catch (err) {
+    logger.error({ err }, "forceadopt card failed");
+  }
+
+  await status.edit(`✅ Done! **${parentName}** ne **${childName}** ko forcefully adopt kar liya! 👑`);
+}
+
+async function handleBotBan(message: Message, args: string[]): Promise<void> {
+  if (!(await isOwnerCheck(message))) return;
+
+  const targetId = args[0]?.replace(/[<@!>]/g, "").trim();
+  if (!targetId || !/^\d+$/.test(targetId)) {
+    await message.reply("Usage: `botban <userid>` — valid Discord user ID do!");
+    return;
+  }
+
+  await BotUser.findOneAndUpdate(
+    { userId: targetId },
+    { $set: { banned: true } },
+    { upsert: true }
+  );
+
+  await message.reply(`🔨 User \`${targetId}\` ko bot se ban kar diya! Ab ye Priya se baat nahi kar sakta.`);
+}
+
+async function handleBotUnban(message: Message, args: string[]): Promise<void> {
+  if (!(await isOwnerCheck(message))) return;
+
+  const targetId = args[0]?.replace(/[<@!>]/g, "").trim();
+  if (!targetId || !/^\d+$/.test(targetId)) {
+    await message.reply("Usage: `botunban <userid>` — valid Discord user ID do!");
+    return;
+  }
+
+  const result = await BotUser.findOneAndUpdate(
+    { userId: targetId },
+    { $set: { banned: false } }
+  );
+
+  if (result) {
+    await message.reply(`✅ User \`${targetId}\` ka bot ban hata diya! Ab ye Priya se baat kar sakta hai.`);
+  } else {
+    await message.reply(`⚠️ User \`${targetId}\` database mein mila nahi — shayad kabhi baat hi nahi ki!`);
+  }
+}
+
+async function handleClearHistory(message: Message, args: string[]): Promise<void> {
+  if (!(await isOwnerCheck(message))) return;
+
+  const targetId = args[0]?.replace(/[<@!>]/g, "").trim();
+  if (!targetId || !/^\d+$/.test(targetId)) {
+    await message.reply("Usage: `clearhistory <userid>` — valid Discord user ID do!");
+    return;
+  }
+
+  const result = await ChatHistory.updateMany({ userId: targetId }, { $set: { messages: [] } });
+  await message.reply(
+    `🗑️ User \`${targetId}\` ki **${result.modifiedCount}** chat histories clear kar di! Priya unhe bilkul naya jaanegi.`
+  );
 }
 
 // ─── !snipe ───────────────────────────────────────────────────────────────────
@@ -1169,6 +1405,18 @@ export async function handlePrefixCommand(
         break;
       case "snipe":
         await handleSnipe(message);
+        break;
+      case "forceadopt":
+        await handleForceAdopt(message, client, args);
+        break;
+      case "botban":
+        await handleBotBan(message, args);
+        break;
+      case "botunban":
+        await handleBotUnban(message, args);
+        break;
+      case "clearhistory":
+        await handleClearHistory(message, args);
         break;
     }
   } catch (err) {

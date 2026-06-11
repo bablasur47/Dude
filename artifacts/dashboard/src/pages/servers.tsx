@@ -18,7 +18,10 @@ function InviteButton({ guildId }: { guildId: string }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/servers/${guildId}/invite`, { credentials: "include" });
+      const token = localStorage.getItem("dashboard_token");
+      const res = await fetch(`/api/servers/${guildId}/invite`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
         throw new Error(j.error ?? "Failed");

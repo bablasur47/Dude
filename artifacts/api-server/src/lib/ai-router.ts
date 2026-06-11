@@ -82,10 +82,31 @@ async function callGemini(apiKey: string, messages: AiMessage[]): Promise<string
         model: modelName,
         ...(system ? { systemInstruction: system } : {}),
       });
-      const history = filtered.slice(0, -1).map((m) => ({
-        role: m.role === "user" ? "user" : "model",
+      // Gemini requires history to start with 'user' and strictly alternate
+      // user/model. Sanitise before passing to startChat to avoid validation errors
+      // caused by corrupted or edge-case history stored in MongoDB.
+      type GeminiMsg = { role: "user" | "model"; parts: { text: string }[] };
+      let rawHistory: GeminiMsg[] = filtered.slice(0, -1).map((m) => ({
+        role: (m.role === "user" ? "user" : "model") as "user" | "model",
         parts: [{ text: m.content }],
       }));
+
+      // 1. Drop leading model messages — Gemini requires the first turn to be 'user'
+      while (rawHistory.length > 0 && rawHistory[0].role === "model") {
+        rawHistory = rawHistory.slice(1);
+      }
+
+      // 2. Merge consecutive same-role messages into one (Gemini requires strict alternation)
+      const history: GeminiMsg[] = [];
+      for (const msg of rawHistory) {
+        const last = history[history.length - 1];
+        if (last && last.role === msg.role) {
+          last.parts = [{ text: last.parts[0].text + "\n" + msg.parts[0].text }];
+        } else {
+          history.push({ role: msg.role, parts: [{ text: msg.parts[0].text }] });
+        }
+      }
+
       const chat = model.startChat({ history });
       const lastMsg = filtered[filtered.length - 1];
       const result = await chat.sendMessage(lastMsg?.content ?? "");

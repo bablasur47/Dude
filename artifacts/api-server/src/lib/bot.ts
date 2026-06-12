@@ -176,14 +176,23 @@ export async function initBot(): Promise<void> {
     partials: [Partials.Channel, Partials.Message],
   });
 
-  discordClient = client;
-
   // Prevent unhandled Discord errors from crashing the process
   client.on(Events.Error, (err) => {
     logger.error({ err }, "Discord client error");
   });
 
+  client.on(Events.ShardDisconnect, () => {
+    logger.warn("Discord client disconnected — clearing ready state");
+    discordClient = null;
+  });
+
+  client.on(Events.ShardReconnecting, () => {
+    logger.info("Discord client reconnecting...");
+  });
+
+
   client.on(Events.ClientReady, async (c) => {
+    discordClient = client;
     logger.info({ username: c.user.tag }, "Discord bot ready");
     botStartTime = Date.now();
 

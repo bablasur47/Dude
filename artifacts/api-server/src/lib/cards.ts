@@ -963,41 +963,76 @@ export async function generateAdoptCard(parent: CardUser, child: CardUser): Prom
 
 // ─── Family card ──────────────────────────────────────────────────────────────
 
+export interface FamilyChildNode {
+  user: CardUser;
+  spouse: CardUser | null;
+  children: CardUser[];
+}
+
 export interface FamilyTreeData {
   user: CardUser;
   grandparents: CardUser[];
   parents: CardUser[];
   spouse: CardUser | null;
-  children: CardUser[];
-  grandchildren: CardUser[];
+  children: FamilyChildNode[];
 }
 
 export async function generateFamilyCard(data: FamilyTreeData): Promise<Buffer> {
-  const { user, grandparents, parents, spouse, children, grandchildren } = data;
-  const W = 900, H = 660;
-  const canvas = createCanvas(W, H);
-  const ctx = canvas.getContext("2d");
+  const { user, grandparents, parents, spouse, children } = data;
 
-  // ── Background ──────────────────────────────────────────────────────────────
+  // ── Column layout for children ───────────────────────────────────────────
+  const COL_GAP   = 14;
+  const GC_SLOT_W = 76;
+  const MARGIN    = 48;
+
+  function colWidth(child: FamilyChildNode): number {
+    const coupleW = child.spouse ? 162 : 82;
+    const gcW     = Math.max(1, child.children.length) * GC_SLOT_W;
+    return Math.max(coupleW, gcW, 82);
+  }
+
+  const colWidths  = children.map(colWidth);
+  const totalColW  = colWidths.reduce((a, b) => a + b, 0)
+    + Math.max(0, children.length - 1) * COL_GAP;
+
+  const hasGC = children.some(c => c.children.length > 0);
+
+  const W = Math.max(900, totalColW + 2 * MARGIN);
+  const H = hasGC ? 640 : 530;
+
+  // ── Row Y / radii ─────────────────────────────────────────────────────────
+  const GP_Y = 76,  GP_R = 24;
+  const P_Y  = 166, P_R  = 36;
+  const U_Y  = 296, U_R  = 52;
+  const C_Y  = 425, C_R  = 34;
+  const GC_RAIL_Y = C_Y + C_R + 18;   // 477
+  const GC_Y      = GC_RAIL_Y + 28;   // 505
+  const GC_R      = 22;
+
+  // ── Canvas ────────────────────────────────────────────────────────────────
+  const canvas = createCanvas(W, H);
+  const ctx    = canvas.getContext("2d");
+
+  // Background gradient
   const bg = ctx.createLinearGradient(0, 0, W, H);
-  bg.addColorStop(0, "#12062a");
+  bg.addColorStop(0,   "#12062a");
   bg.addColorStop(0.5, "#1c0b38");
-  bg.addColorStop(1, "#0e0520");
+  bg.addColorStop(1,   "#0e0520");
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
-  const ag = ctx.createRadialGradient(W / 2, H / 2, 30, W / 2, H / 2, 360);
+  const ag = ctx.createRadialGradient(W / 2, H / 2, 30, W / 2, H / 2, Math.max(W, H) * 0.45);
   ag.addColorStop(0, "rgba(155,80,210,0.13)");
   ag.addColorStop(1, "transparent");
   ctx.fillStyle = ag;
   ctx.fillRect(0, 0, W, H);
 
-  for (let i = 0; i < 150; i++) {
+  for (let i = 0; i < 180; i++) {
     const sx = (i * 157.3 + 23) % W;
-    const sy = (i * 93.7 + 11) % H;
+    const sy = (i * 93.7  + 11) % H;
     ctx.save();
     ctx.globalAlpha = 0.04 + (i % 7) * 0.02;
-    ctx.fillStyle = i % 6 === 0 ? "#ff80c0" : "#ffffff";
+    ctx.fillStyle   = i % 6 === 0 ? "#ff80c0" : "#ffffff";
     ctx.beginPath();
     ctx.arc(sx, sy, i % 9 === 0 ? 1.0 : 0.45, 0, Math.PI * 2);
     ctx.fill();
@@ -1009,12 +1044,12 @@ export async function generateFamilyCard(data: FamilyTreeData): Promise<Buffer> 
   ctx.fillStyle = "rgba(255,255,255,0.02)";
   ctx.fill();
   const borderG = ctx.createLinearGradient(0, 0, W, H);
-  borderG.addColorStop(0, "#9b59b6");
+  borderG.addColorStop(0,   "#9b59b6");
   borderG.addColorStop(0.5, "#e91e63aa");
-  borderG.addColorStop(1, "#9b59b6");
+  borderG.addColorStop(1,   "#9b59b6");
   ctx.strokeStyle = borderG;
-  ctx.lineWidth = 2.5;
-  ctx.shadowBlur = 18;
+  ctx.lineWidth   = 2.5;
+  ctx.shadowBlur  = 18;
   ctx.shadowColor = "#9b59b6";
   ctx.stroke();
   ctx.restore();
@@ -1022,42 +1057,27 @@ export async function generateFamilyCard(data: FamilyTreeData): Promise<Buffer> 
   // Title
   ctx.save();
   const titleG = ctx.createLinearGradient(W / 2 - 220, 0, W / 2 + 220, 0);
-  titleG.addColorStop(0, "#c084fc");
+  titleG.addColorStop(0,   "#c084fc");
   titleG.addColorStop(0.5, "#ffffff");
-  titleG.addColorStop(1, "#c084fc");
-  ctx.font = `bold 24px "DejaVu"`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.shadowBlur = 16;
-  ctx.shadowColor = "#9b59b6";
-  ctx.fillStyle = titleG;
+  titleG.addColorStop(1,   "#c084fc");
+  ctx.font          = `bold 24px "DejaVu"`;
+  ctx.textAlign     = "center";
+  ctx.textBaseline  = "middle";
+  ctx.shadowBlur    = 16;
+  ctx.shadowColor   = "#9b59b6";
+  ctx.fillStyle     = titleG;
   ctx.fillText(`${truncate(user.username, 20)}'s Family Tree`, W / 2, 32);
   ctx.restore();
 
-  // ── Row Y-centers and radii ────────────────────────────────────────────────
-  const GP_Y = 93,  GP_R = 28;
-  const P_Y  = 203, P_R  = 40;
-  const U_Y  = 342, U_R  = 56;
-  const C_Y  = 472, C_R  = 38;
-  const GC_Y = 578, GC_R = 27;
-
+  // ── Helpers ───────────────────────────────────────────────────────────────
   const PINK      = "rgba(255,110,180,0.70)";
   const PINK_GLOW = "#ff6eb4";
 
-  // Evenly space N items across W with a margin
-  const rowXs = (count: number, margin = 44): number[] => {
-    if (count === 0) return [];
-    if (count === 1) return [W / 2];
-    const spacing = (W - 2 * margin) / (count - 1);
-    return Array.from({ length: count }, (_, i) => margin + i * spacing);
-  };
-
-  // Connector line helper
   const line = (x1: number, y1: number, x2: number, y2: number, dashed = false, color = PINK) => {
     ctx.save();
     ctx.strokeStyle = color;
-    ctx.lineWidth = 1.8;
-    ctx.shadowBlur = 6;
+    ctx.lineWidth   = 1.8;
+    ctx.shadowBlur  = 6;
     ctx.shadowColor = PINK_GLOW;
     if (dashed) ctx.setLineDash([5, 5]);
     ctx.beginPath();
@@ -1068,59 +1088,106 @@ export async function generateFamilyCard(data: FamilyTreeData): Promise<Buffer> 
     ctx.restore();
   };
 
-  // Avatar + name node
   const node = async (
     u: CardUser, cx: number, cy: number, r: number,
     ring: string, glow: string, nameColor = "#d0d0ff", bold = false
   ) => {
     await drawAvatar(ctx, u.avatarUrl, cx, cy, r, glow, ring, u.username[0]);
     ctx.save();
-    ctx.font = `${bold ? "bold " : ""}${bold ? 13 : 11}px "DejaVu"`;
-    ctx.textAlign = "center";
+    ctx.font         = `${bold ? "bold " : ""}${bold ? 13 : 11}px "DejaVu"`;
+    ctx.textAlign    = "center";
     ctx.textBaseline = "top";
-    ctx.fillStyle = nameColor;
-    ctx.shadowBlur = bold ? 10 : 5;
-    ctx.shadowColor = ring;
+    ctx.fillStyle    = nameColor;
+    ctx.shadowBlur   = bold ? 10 : 5;
+    ctx.shadowColor  = ring;
     ctx.fillText(truncate(u.username, bold ? 14 : 10), cx, cy + r + 5);
     ctx.restore();
   };
 
-  // Left-edge row label
   const rowLabel = (text: string, y: number, color: string) => {
     ctx.save();
-    ctx.font = `9px "DejaVu"`;
-    ctx.fillStyle = color;
-    ctx.textAlign = "left";
+    ctx.font         = `9px "DejaVu"`;
+    ctx.fillStyle    = color;
+    ctx.textAlign    = "left";
     ctx.textBaseline = "middle";
-    ctx.globalAlpha = 0.45;
+    ctx.globalAlpha  = 0.45;
     ctx.fillText(text, 16, y);
     ctx.restore();
   };
 
-  // ── Compute positions ──────────────────────────────────────────────────────
-  const gpShow = Math.min(grandparents.length, 6);
-  const pShow  = Math.min(parents.length, 4);
-  const cShow  = Math.min(children.length, 5);
-  const gcShow = Math.min(grandchildren.length, 6);
+  const rowXs = (count: number, margin = 44): number[] => {
+    if (count === 0) return [];
+    if (count === 1) return [W / 2];
+    const spacing = (W - 2 * margin) / (count - 1);
+    return Array.from({ length: count }, (_, i) => margin + i * spacing);
+  };
 
-  const gpXs = rowXs(gpShow);
-  const pXs  = rowXs(pShow);
-  const cXs  = rowXs(cShow);
-  const gcXs = rowXs(gcShow);
+  // ── Per-child column positions ────────────────────────────────────────────
+  const blockLeft = children.length > 0
+    ? Math.max(MARGIN, (W - totalColW) / 2)
+    : MARGIN;
 
-  const USER_X    = spouse ? W / 2 - 72 : W / 2;
-  const SPOUSE_X  = W / 2 + 78;
-  const SPOUSE_R  = 48;
+  const colLefts: number[] = [];
+  let curX = blockLeft;
+  for (let i = 0; i < children.length; i++) {
+    colLefts.push(curX);
+    curX += colWidths[i] + COL_GAP;
+  }
+
+  // child avatar X, spouse X, couple-center X, grandchild Xs per child
+  const childAvX:    number[]   = [];
+  const childSpX:    number[]   = [];
+  const childCplCX:  number[]   = [];
+  const gcXsEach:    number[][] = [];
+
+  for (let i = 0; i < children.length; i++) {
+    const ch   = children[i];
+    const cL   = colLefts[i];
+    const cW   = colWidths[i];
+    const colCX = cL + cW / 2;
+
+    if (ch.spouse) {
+      childAvX.push(colCX - 40);
+      childSpX.push(colCX + 40);
+      childCplCX.push(colCX);
+    } else {
+      childAvX.push(colCX);
+      childSpX.push(-1);
+      childCplCX.push(colCX);
+    }
+
+    const gcN = ch.children.length;
+    if (gcN === 0) {
+      gcXsEach.push([]);
+    } else if (gcN === 1) {
+      gcXsEach.push([cL + cW / 2]);
+    } else {
+      const span = cW - 20;
+      gcXsEach.push(
+        Array.from({ length: gcN }, (_, j) => cL + 10 + j * (span / (gcN - 1)))
+      );
+    }
+  }
+
+  // User / couple positions
+  const USER_X    = spouse ? W / 2 - 70 : W / 2;
+  const SPOUSE_X  = W / 2 + 80;
+  const SPOUSE_R  = 46;
   const COUPLE_CX = spouse ? (USER_X + SPOUSE_X) / 2 : USER_X;
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // PASS 1 — Connector lines (behind avatars)
-  // ═══════════════════════════════════════════════════════════════════════════
+  const gpShow = Math.min(grandparents.length, 6);
+  const pShow  = Math.min(parents.length, 4);
+  const gpXs   = rowXs(gpShow);
+  const pXs    = rowXs(pShow);
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // PASS 1 — Connector lines
+  // ═════════════════════════════════════════════════════════════════════════
 
   // Grandparents → Parents
   if (gpShow > 0 && pShow > 0) {
-    const GP_RAIL = GP_Y + GP_R + 13;
-    const P_RAIL  = P_Y - P_R - 13;
+    const GP_RAIL = GP_Y + GP_R + 12;
+    const P_RAIL  = P_Y - P_R - 12;
     for (const gx of gpXs) line(gx, GP_Y + GP_R + 2, gx, GP_RAIL);
     if (gpShow > 1) line(gpXs[0], GP_RAIL, gpXs[gpShow - 1], GP_RAIL);
     for (const px of pXs) line(px, P_RAIL, px, P_Y - P_R - 2);
@@ -1132,7 +1199,7 @@ export async function generateFamilyCard(data: FamilyTreeData): Promise<Buffer> 
 
   // Parents → User
   if (pShow > 0) {
-    const P_RAIL = P_Y + P_R + 14;
+    const P_RAIL = P_Y + P_R + 13;
     for (const px of pXs) line(px, P_Y + P_R + 2, px, P_RAIL);
     if (pShow > 1) line(pXs[0], P_RAIL, pXs[pShow - 1], P_RAIL);
     const pCX = pShow === 1 ? pXs[0] : (pXs[0] + pXs[pShow - 1]) / 2;
@@ -1143,41 +1210,63 @@ export async function generateFamilyCard(data: FamilyTreeData): Promise<Buffer> 
   if (spouse) {
     line(USER_X + U_R + 4, U_Y, SPOUSE_X - SPOUSE_R - 4, U_Y, false, "rgba(233,30,99,0.85)");
     ctx.save();
-    ctx.font = `15px "DejaVu"`;
-    ctx.textAlign = "center";
+    ctx.font         = `15px "DejaVu"`;
+    ctx.textAlign    = "center";
     ctx.textBaseline = "middle";
-    ctx.fillStyle = "#e91e63";
-    ctx.shadowBlur = 10;
-    ctx.shadowColor = "#ff4081";
+    ctx.fillStyle    = "#e91e63";
+    ctx.shadowBlur   = 10;
+    ctx.shadowColor  = "#ff4081";
     ctx.fillText("♥", (USER_X + U_R + 4 + SPOUSE_X - SPOUSE_R - 4) / 2, U_Y);
     ctx.restore();
   }
 
-  // User/Couple → Children
-  if (cShow > 0) {
-    const C_RAIL = U_Y + U_R + 14;
-    const cCX = cShow === 1 ? cXs[0] : (cXs[0] + cXs[cShow - 1]) / 2;
+  // User/Couple → Children (fan-out rail)
+  if (children.length > 0) {
+    const C_RAIL = U_Y + U_R + 22;
     line(COUPLE_CX, U_Y + U_R + 3, COUPLE_CX, C_RAIL, true);
-    if (Math.abs(cCX - COUPLE_CX) > 4) line(COUPLE_CX, C_RAIL, cCX, C_RAIL);
-    if (cShow > 1) line(cXs[0], C_RAIL, cXs[cShow - 1], C_RAIL);
-    for (const cx2 of cXs) line(cx2, C_RAIL, cx2, C_Y - C_R - 4, true);
+    const leftX  = childAvX[0];
+    const rightX = childAvX[children.length - 1];
+    if (children.length > 1 || Math.abs(leftX - COUPLE_CX) > 4) {
+      const railL = Math.min(COUPLE_CX, leftX);
+      const railR = Math.max(COUPLE_CX, rightX);
+      line(railL, C_RAIL, railR, C_RAIL);
+    }
+    for (let i = 0; i < children.length; i++) {
+      line(childAvX[i], C_RAIL, childAvX[i], C_Y - C_R - 4, true);
+    }
   }
 
-  // Children → Grandchildren
-  if (gcShow > 0 && cShow > 0) {
-    const GC_RAIL = C_Y + C_R + 13;
-    const cCX  = cShow  === 1 ? cXs[0]  : (cXs[0]  + cXs[cShow  - 1]) / 2;
-    const gcCX = gcShow === 1 ? gcXs[0] : (gcXs[0] + gcXs[gcShow - 1]) / 2;
-    for (const cx2 of cXs) line(cx2, C_Y + C_R + 2, cx2, GC_RAIL);
-    if (cShow > 1)  line(cXs[0],  GC_RAIL, cXs[cShow - 1],   GC_RAIL);
-    if (Math.abs(gcCX - cCX) > 4) line(cCX, GC_RAIL, gcCX, GC_RAIL);
-    if (gcShow > 1) line(gcXs[0], GC_RAIL, gcXs[gcShow - 1], GC_RAIL);
-    for (const gx of gcXs) line(gx, GC_RAIL, gx, GC_Y - GC_R - 4, true);
+  // Child ↔ Child Spouse heart lines
+  for (let i = 0; i < children.length; i++) {
+    if (!children[i].spouse) continue;
+    const cX = childAvX[i];
+    const sX = childSpX[i];
+    line(cX + C_R + 3, C_Y, sX - (C_R - 4) - 3, C_Y, false, "rgba(233,30,99,0.7)");
+    ctx.save();
+    ctx.font         = `12px "DejaVu"`;
+    ctx.textAlign    = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle    = "#e91e63";
+    ctx.shadowBlur   = 8;
+    ctx.shadowColor  = "#ff4081";
+    ctx.fillText("♥", (cX + C_R + 3 + sX - (C_R - 4) - 3) / 2, C_Y);
+    ctx.restore();
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // PASS 2 — Avatars (front layer)
-  // ═══════════════════════════════════════════════════════════════════════════
+  // Per-child → grandchildren rails
+  for (let i = 0; i < children.length; i++) {
+    const gcXs2 = gcXsEach[i];
+    if (gcXs2.length === 0) continue;
+    const ccx = childCplCX[i];
+    line(ccx, C_Y + C_R + 3, ccx, GC_RAIL_Y, true);
+    if (gcXs2.length > 1) line(gcXs2[0], GC_RAIL_Y, gcXs2[gcXs2.length - 1], GC_RAIL_Y);
+    else if (Math.abs(gcXs2[0] - ccx) > 4) line(ccx, GC_RAIL_Y, gcXs2[0], GC_RAIL_Y);
+    for (const gx of gcXs2) line(gx, GC_RAIL_Y, gx, GC_Y - GC_R - 4, true);
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // PASS 2 — Avatars
+  // ═════════════════════════════════════════════════════════════════════════
 
   for (let i = 0; i < gpShow; i++)
     await node(grandparents[i], gpXs[i], GP_Y, GP_R, "#7eb8e0", "#4a9fd4");
@@ -1190,35 +1279,36 @@ export async function generateFamilyCard(data: FamilyTreeData): Promise<Buffer> 
   if (spouse)
     await node(spouse, SPOUSE_X, U_Y, SPOUSE_R, "#e91e63", "#ff4081", "#ff80ab");
 
-  for (let i = 0; i < cShow; i++)
-    await node(children[i], cXs[i], C_Y, C_R, "#43b581", "#2ecc71");
-
-  for (let i = 0; i < gcShow; i++)
-    await node(grandchildren[i], gcXs[i], GC_Y, GC_R, "#89b4fa", "#6fa8dc");
+  for (let i = 0; i < children.length; i++) {
+    const ch = children[i];
+    await node(ch.user, childAvX[i], C_Y, C_R, "#43b581", "#2ecc71");
+    if (ch.spouse)
+      await node(ch.spouse, childSpX[i], C_Y, C_R - 4, "#e91e63", "#ff4081", "#ffb3c6");
+    for (let j = 0; j < ch.children.length; j++)
+      await node(ch.children[j], gcXsEach[i][j], GC_Y, GC_R, "#89b4fa", "#6fa8dc");
+  }
 
   // Row labels
-  if (gpShow > 0) rowLabel("GRANDPARENTS", GP_Y, "#7eb8e0");
-  if (pShow > 0)  rowLabel("PARENTS", P_Y, "#7289da");
+  if (gpShow > 0)       rowLabel("GRANDPARENTS", GP_Y, "#7eb8e0");
+  if (pShow  > 0)       rowLabel("PARENTS",      P_Y,  "#7289da");
   rowLabel("YOU", U_Y, "#ffd700");
-  if (cShow > 0)  rowLabel("CHILDREN", C_Y, "#43b581");
-  if (gcShow > 0) rowLabel("GRANDCHILDREN", GC_Y, "#89b4fa");
+  if (children.length > 0) rowLabel("CHILDREN",  C_Y,  "#43b581");
+  if (hasGC)            rowLabel("GRANDCHILDREN", GC_Y, "#89b4fa");
 
-  // Overflow hints (right edge)
+  // Overflow hints for grandparents / parents only
   const overflowHint = (total: number, shown: number, y: number, color: string) => {
     if (total <= shown) return;
     ctx.save();
-    ctx.font = `9px "DejaVu"`;
-    ctx.fillStyle = color;
-    ctx.textAlign = "right";
+    ctx.font         = `9px "DejaVu"`;
+    ctx.fillStyle    = color;
+    ctx.textAlign    = "right";
     ctx.textBaseline = "middle";
-    ctx.globalAlpha = 0.6;
+    ctx.globalAlpha  = 0.6;
     ctx.fillText(`+${total - shown} more`, W - 16, y);
     ctx.restore();
   };
   overflowHint(grandparents.length, 6, GP_Y, "#7eb8e0");
-  overflowHint(parents.length, 4, P_Y, "#7289da");
-  overflowHint(children.length, 5, C_Y, "#43b581");
-  overflowHint(grandchildren.length, 6, GC_Y, "#89b4fa");
+  overflowHint(parents.length,      4, P_Y,  "#7289da");
 
   return canvas.toBuffer("image/png");
 }

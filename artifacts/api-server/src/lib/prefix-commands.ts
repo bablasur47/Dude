@@ -22,6 +22,7 @@ import {
   generateSnipeCard,
   type CardUser,
   type CounterMember,
+  type FamilyChildNode,
 } from "./cards";
 import { snipeStore } from "./bot";
 import { getAiResponse } from "./ai-router";
@@ -513,36 +514,65 @@ async function handleFamily(message: Message, client: Client, args: string[]) {
     );
     const grandparentIds = [...new Set<string>(gpSets.flat())].slice(0, 6);
 
-    // Children: merge user + spouse children (max 5)
+    // Children: merge user + spouse children (cap at 12 for layout)
     const ownChildIds: string[] = rel?.children ?? [];
     const spouseChildIds: string[] = spouseRel?.children ?? [];
-    const childIds = [...new Set<string>([...ownChildIds, ...spouseChildIds])].slice(0, 5);
+    const childIds = [...new Set<string>([...ownChildIds, ...spouseChildIds])].slice(0, 12);
 
-    // Grandchildren: children of each child (max 6 total)
-    const gcSets = await Promise.all(
-      childIds.map((cid) =>
-        UserRelationship.findOne({ userId: cid, guildId }).then((r) => r?.children ?? [])
+    // Fetch per-child: their relationship (spouse + their own children)
+    const childRels = await Promise.all(
+      childIds.map((cid) => UserRelationship.findOne({ userId: cid, guildId }))
+    );
+
+    // For each child that has a spouse, fetch that spouse's rel too (to merge children)
+    const childSpouseRels = await Promise.all(
+      childRels.map((cr) =>
+        cr?.marriedTo
+          ? UserRelationship.findOne({ userId: cr.marriedTo, guildId })
+          : Promise.resolve(null)
       )
     );
-    const grandchildIds = [...new Set<string>(gcSets.flat())].slice(0, 6);
 
-    const [userCard, spouseCard, grandparentCards, parentCards, childCards, grandchildCards] =
+    // Resolve all card users in parallel
+    const [userCard, spouseCard, grandparentCards, parentCards, ...childDataArrays] =
       await Promise.all([
         resolveCardUser(targetId, client, guildId),
         rel?.marriedTo ? resolveCardUser(rel.marriedTo, client, guildId) : Promise.resolve(null),
         Promise.all(grandparentIds.map((id) => resolveCardUser(id, client, guildId))),
         Promise.all(parentIds.map((id) => resolveCardUser(id, client, guildId))),
-        Promise.all(childIds.map((id) => resolveCardUser(id, client, guildId))),
-        Promise.all(grandchildIds.map((id) => resolveCardUser(id, client, guildId))),
+        // For each child: resolve [childUser, childSpouseUser | null, ...gcUsers]
+        ...childIds.map(async (cid, i): Promise<FamilyChildNode> => {
+          const cr  = childRels[i];
+          const csr = childSpouseRels[i];
+          const gcIds = [
+            ...new Set<string>([
+              ...(cr?.children  ?? []),
+              ...(csr?.children ?? []),
+            ]),
+          ].slice(0, 6);
+
+          const [childUser, childSpouseUser, ...gcUsers] = await Promise.all([
+            resolveCardUser(cid, client, guildId),
+            cr?.marriedTo ? resolveCardUser(cr.marriedTo, client, guildId) : Promise.resolve(null),
+            ...gcIds.map((id) => resolveCardUser(id, client, guildId)),
+          ]);
+
+          return {
+            user:     childUser,
+            spouse:   childSpouseUser,
+            children: gcUsers as CardUser[],
+          };
+        }),
       ]);
 
+    const childNodes = childDataArrays as FamilyChildNode[];
+
     const buf = await generateFamilyCard({
-      user: userCard,
+      user:        userCard,
       grandparents: grandparentCards,
-      parents: parentCards,
-      spouse: spouseCard,
-      children: childCards,
-      grandchildren: grandchildCards,
+      parents:      parentCards,
+      spouse:       spouseCard,
+      children:     childNodes,
     });
     await status.edit({
       content: `🌳 **${userCard.username}**'s Family Tree`,

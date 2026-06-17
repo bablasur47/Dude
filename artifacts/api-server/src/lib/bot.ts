@@ -1,20 +1,18 @@
 import {
   Client,
-  GatewayIntentBits,
-  Partials,
   Events,
-  Message,
-  GuildMember,
-  TextChannel,
+  type Message,
+  type GuildMember,
+  type TextChannel,
   ChannelType,
-} from "discord.js";
+} from "discord.js-selfbot-v13";
 import { logger } from "./logger";
-import { ChatHistory, BotUser, ServerConfig, Personality, UserRelationship } from "./models";
+import { ChatHistory, BotUser, ServerConfig, Personality } from "./models";
 import { getAiResponse } from "./ai-router";
 import { getPersonality } from "./personality";
-import { handlePrefixCommand, getServerPrefix, invalidatePrefixCache } from "./prefix-commands";
-import { generateCounterCard, generateAdoptCard } from "./cards";
-import type { CardUser, CounterMember } from "./cards";
+import { handlePrefixCommand, getServerPrefix } from "./prefix-commands";
+import { generateCounterCard } from "./cards";
+import type { CounterMember } from "./cards";
 
 export let discordClient: Client | null = null;
 export let botStartTime = Date.now();
@@ -41,7 +39,6 @@ async function getHistory(userId: string, guildId: string) {
   if (!history) {
     history = new ChatHistory({ userId, guildId, messages: [] });
   }
-  // Prune old messages
   history.messages = history.messages.filter(
     (m: { timestamp: Date }) => m.timestamp >= cutoff
   );
@@ -50,8 +47,6 @@ async function getHistory(userId: string, guildId: string) {
 
 async function saveHistory(userId: string, guildId: string, role: "user" | "assistant", content: string) {
   const cutoff = new Date(Date.now() - ONE_WEEK_MS);
-  // $push and $pull on the same field in one op cause a MongoDB conflict —
-  // split into two sequential updates.
   await ChatHistory.findOneAndUpdate(
     { userId, guildId },
     { $push: { messages: { role, content, timestamp: new Date() } } },
@@ -80,6 +75,17 @@ async function upsertUser(member: { id: string; username: string; discriminator?
   );
 }
 
+// ─── Access check ─────────────────────────────────────────────────────────────
+
+async function isAllowed(userId: string): Promise<{ allowed: boolean; banned: boolean }> {
+  const ownerId = process.env.OWNER_DISCORD_ID;
+  if (userId === ownerId) return { allowed: true, banned: false };
+  const user = await BotUser.findOne({ userId });
+  if (user?.banned) return { allowed: false, banned: true };
+  if (user?.whitelisted) return { allowed: true, banned: false };
+  return { allowed: false, banned: false };
+}
+
 // ─── Core reply logic ─────────────────────────────────────────────────────────
 
 async function generateReply(
@@ -93,7 +99,6 @@ async function generateReply(
 
   let systemPrompt = personality.systemPrompt;
 
-  // ── Inject user personal preferences ──────────────────────────────────────
   const userProfile = await BotUser.findOne({ userId });
   if (userProfile) {
     const prefs: string[] = [];
@@ -159,41 +164,30 @@ async function generateReply(
 // ─── Bot initialization ───────────────────────────────────────────────────────
 
 export async function initBot(): Promise<void> {
-  const token = process.env.DISCORD_BOT_TOKEN;
+  const token = process.env.DISCORD_USER_TOKEN ?? process.env.DISCORD_BOT_TOKEN;
   if (!token) {
-    logger.warn("DISCORD_BOT_TOKEN not set, skipping bot init");
+    logger.warn("DISCORD_USER_TOKEN not set, skipping bot init");
     return;
   }
 
-  const client = new Client({
-    intents: [
-      GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildMessages,
-      GatewayIntentBits.MessageContent,
-      GatewayIntentBits.GuildMembers,
-      GatewayIntentBits.DirectMessages,
-    ],
-    partials: [Partials.Channel, Partials.Message],
-  });
+  const client = new Client({ checkUpdate: false });
 
-  // Prevent unhandled Discord errors from crashing the process
   client.on(Events.Error, (err) => {
     logger.error({ err }, "Discord client error");
   });
 
-  client.on(Events.ShardDisconnect, () => {
+  client.on(Events.ShardDisconnect as unknown as string, () => {
     logger.warn("Discord client disconnected — clearing ready state");
     discordClient = null;
   });
 
-  client.on(Events.ShardReconnecting, () => {
+  client.on(Events.ShardReconnecting as unknown as string, () => {
     logger.info("Discord client reconnecting...");
   });
 
-
   client.on(Events.ClientReady, async (c) => {
     discordClient = client;
-    logger.info({ username: c.user.tag }, "Discord bot ready");
+    logger.info({ username: c.user.tag }, "Discord selfbot ready");
     botStartTime = Date.now();
 
     // Sync guild list
@@ -213,242 +207,8 @@ export async function initBot(): Promise<void> {
       );
     }
 
-    // Register slash commands
-    await c.application.commands.set([
-      {
-        name: "nsfw",
-        description: "Enable or disable Priya NSFW mode in this channel",
-        options: [
-          {
-            name: "enable",
-            description: "true to enable, false to disable",
-            type: 5, // BOOLEAN
-            required: true,
-          },
-        ],
-      },
-      {
-        name: "reset",
-        description: "Reset your chat history with Priya",
-      },
-      {
-        name: "truth",
-        description: "Ask Priya for a truth question",
-      },
-      {
-        name: "dare",
-        description: "Ask Priya for a dare",
-      },
-      // ── Owner-only commands ──────────────────────────────────────────────────
-      {
-        name: "ping",
-        description: "[Owner] Check bot latency and stats",
-      },
-      {
-        name: "announce",
-        description: "[Owner] Broadcast a message as Priya to all servers",
-        options: [
-          {
-            name: "message",
-            description: "Message to broadcast",
-            type: 3, // STRING
-            required: true,
-          },
-        ],
-      },
-      {
-        name: "ban",
-        description: "[Owner] Ban a user from using Priya",
-        options: [
-          {
-            name: "user",
-            description: "User to ban",
-            type: 6, // USER
-            required: true,
-          },
-          {
-            name: "reason",
-            description: "Reason for ban",
-            type: 3, // STRING
-            required: false,
-          },
-        ],
-      },
-      {
-        name: "unban",
-        description: "[Owner] Unban a user from using Priya",
-        options: [
-          {
-            name: "userid",
-            description: "Discord user ID to unban",
-            type: 3, // STRING
-            required: true,
-          },
-        ],
-      },
-      {
-        name: "serverlist",
-        description: "[Owner] List all servers Priya is in",
-      },
-      {
-        name: "clearhistory",
-        description: "[Owner] Clear chat history of any user",
-        options: [
-          {
-            name: "userid",
-            description: "Discord user ID",
-            type: 3, // STRING
-            required: true,
-          },
-        ],
-      },
-      {
-        name: "setpingchannel",
-        description: "Set the channel where Priya randomly pings members (server owner / Manage Server)",
-        options: [
-          {
-            name: "channel",
-            description: "Channel for random pings",
-            type: 7, // CHANNEL
-            required: true,
-          },
-        ],
-      },
-      {
-        name: "setwelcome",
-        description: "Set the welcome channel for new members (also enables welcome)",
-        options: [
-          {
-            name: "channel",
-            description: "Channel to send welcome messages in",
-            type: 7, // CHANNEL
-            required: true,
-          },
-        ],
-      },
-      {
-        name: "welcome",
-        description: "Enable or disable welcome messages for new members in this server",
-        options: [
-          {
-            name: "enable",
-            description: "true to enable, false to disable",
-            type: 5, // BOOLEAN
-            required: true,
-          },
-        ],
-      },
-      {
-        name: "resetserver",
-        description: "Reset ALL chat history in this server (server owner or admin only)",
-      },
-      {
-        name: "say",
-        description: "Make Priya say something in a channel (Administrators only)",
-        options: [
-          {
-            name: "content",
-            description: "What should Priya say?",
-            type: 3, // STRING
-            required: true,
-          },
-          {
-            name: "channel",
-            description: "Channel to send the message in (defaults to current channel)",
-            type: 7, // CHANNEL
-            required: false,
-          },
-        ],
-      },
-      {
-        name: "setprefix",
-        description: "Change Priya's command prefix for this server (Admin only)",
-        options: [
-          {
-            name: "prefix",
-            description: "New prefix, e.g. ! or $ or . (1-5 characters)",
-            type: 3, // STRING
-            required: true,
-          },
-        ],
-      },
-      {
-        name: "forceadopt",
-        description: "[Owner] Forcefully adopt any user as another's child (no consent needed)",
-        options: [
-          {
-            name: "parent",
-            description: "The parent user",
-            type: 6, // USER
-            required: true,
-          },
-          {
-            name: "child",
-            description: "The child user",
-            type: 6, // USER
-            required: true,
-          },
-        ],
-      },
-      {
-        name: "setupcounter",
-        description: "Post a live message-count image in this channel, updated every 30s (Admin only)",
-      },
-      {
-        name: "setprovider",
-        description: "[Owner] Switch Priya's active AI provider",
-        options: [
-          {
-            name: "provider",
-            description: "AI provider to use",
-            type: 3, // STRING
-            required: true,
-            choices: [
-              { name: "Groq", value: "groq" },
-              { name: "Gemini", value: "gemini" },
-              { name: "Nvidia", value: "nvidia" },
-            ],
-          },
-        ],
-      },
-      // ── AI toggle commands ────────────────────────────────────────────────────
-      {
-        name: "aioff",
-        description: "Disable Priya AI replies in this entire server (Admin only)",
-      },
-      {
-        name: "aion",
-        description: "Re-enable Priya AI replies in this entire server (Admin only)",
-      },
-      {
-        name: "aioffchannel",
-        description: "Disable Priya AI replies in a specific channel (Admin only)",
-        options: [
-          {
-            name: "channel",
-            description: "Channel to mute Priya AI in",
-            type: 7, // CHANNEL
-            required: true,
-          },
-        ],
-      },
-      {
-        name: "aionchannel",
-        description: "Re-enable Priya AI replies in a specific channel (Admin only)",
-        options: [
-          {
-            name: "channel",
-            description: "Channel to re-enable Priya AI in",
-            type: 7, // CHANNEL
-            required: true,
-          },
-        ],
-      },
-    ]);
-
-    // Start random ping scheduler
+    // Start schedulers
     startRandomPingScheduler(c);
-    // Start live counter updater
     startCounterUpdater(c);
   });
 
@@ -479,7 +239,6 @@ export async function initBot(): Promise<void> {
     const guild = member.guild;
     const serverConf = await ServerConfig.findOne({ guildId: guild.id });
 
-    // Welcome is off by default per server — must be explicitly enabled
     if (!serverConf?.welcomeEnabled) return;
 
     let channel: TextChannel | undefined;
@@ -489,7 +248,6 @@ export async function initBot(): Promise<void> {
         channel = ch as TextChannel;
       }
     }
-    // Fall back to system channel or first text channel
     if (!channel) {
       channel = (guild.systemChannel || guild.channels.cache
         .filter((c) => c.type === ChannelType.GuildText)
@@ -515,14 +273,14 @@ export async function initBot(): Promise<void> {
 
   client.on(Events.MessageDelete, (message) => {
     if (message.partial) return;
-    if (message.author?.bot) return;
+    if (!message.author) return;
+    if (message.author.id === client.user?.id) return;
     if (!message.content) return;
     const displayName =
       (message.member as GuildMember | null)?.displayName ??
       message.author?.username ??
       "Unknown";
-    const avatarUrl =
-      message.author?.displayAvatarURL({ size: 256, extension: "png" } as Parameters<typeof message.author.displayAvatarURL>[0]) ?? null;
+    const avatarUrl = message.author?.avatarURL({ size: 256 }) ?? null;
     const entry: DeletedMessage = {
       authorId: message.author!.id,
       authorName: displayName,
@@ -537,12 +295,13 @@ export async function initBot(): Promise<void> {
   // ─── Message handler ─────────────────────────────────────────────────────────
 
   client.on(Events.MessageCreate, async (message: Message) => {
-    if (message.author.bot) return;
+    // Skip own messages
+    if (message.author.id === client.user?.id) return;
 
     const isDm = !message.guild;
     const guildId = isDm ? "dm" : message.guild!.id;
 
-    // Count every non-bot guild message — server total + per-user leaderboard count
+    // Count every guild message — server total + per-user leaderboard count
     if (!isDm) {
       ServerConfig.findOneAndUpdate(
         { guildId },
@@ -555,7 +314,7 @@ export async function initBot(): Promise<void> {
           $setOnInsert: {
             username: message.author.username,
             discriminator: message.author.discriminator ?? "0",
-            avatarUrl: message.author.displayAvatarURL({ size: 64 }) ?? "",
+            avatarUrl: message.author.avatarURL({ size: 64 }) ?? "",
           },
           $addToSet: { servers: guildId },
         },
@@ -571,7 +330,7 @@ export async function initBot(): Promise<void> {
         .then((m) => m.author.id === client.user!.id)
         .catch(() => false));
 
-    // ── Dynamic prefix commands — image, ship, marry, divorce, adopt, unadopt, family ──
+    // ── Prefix commands ────────────────────────────────────────────────────────
     const serverPrefix = await getServerPrefix(isDm ? null : message.guild?.id ?? null);
     if (message.content.startsWith(serverPrefix)) {
       const withoutPrefix = message.content.slice(serverPrefix.length).trim();
@@ -579,15 +338,26 @@ export async function initBot(): Promise<void> {
       const command = parts[0]?.toLowerCase() ?? "";
       const args = parts.slice(1);
 
+      // ── Whitelist management (owner only) ─────────────────────────────────
+      if (command === "whitelist") {
+        if (message.author.id !== process.env.OWNER_DISCORD_ID) {
+          await message.reply("Yaar ye command sirf bot owner ke liye hai! 😤");
+          return;
+        }
+        await handleWhitelistCommand(message, args);
+        return;
+      }
+
+      // ── All other prefix commands — check whitelist first ─────────────────
+      const access = await isAllowed(message.author.id);
+      if (!access.allowed) return;
+
       if (command === "image" || command === "imagine") {
         const rawPrompt = args.join(" ").trim();
         if (!rawPrompt) {
           await message.reply(`Kya banana hai? Kuch prompt do! Example: \`${serverPrefix}image cute cat on a mountain\``);
           return;
         }
-        const bannedCheck = await BotUser.findOne({ userId: message.author.id, banned: true });
-        if (bannedCheck) return;
-
         let statusMsg: Message | null = null;
         try {
           statusMsg = await message.reply("Soch rahi hun... image bana rahi hun! Thodi wait karo 🎨");
@@ -631,10 +401,31 @@ export async function initBot(): Promise<void> {
         "lb",
         "resetcount",
         "snipe",
+        "nsfw",
+        "reset",
+        "truth",
+        "dare",
+        "ping",
+        "announce",
+        "ban", "botban",
+        "unban", "botunban",
+        "serverlist",
+        "clearhistory",
+        "setpingchannel",
+        "setwelcome",
+        "welcome",
+        "resetserver",
+        "say",
+        "forceadopt",
+        "setupcounter",
+        "setprefix",
+        "setprovider",
+        "aioff",
+        "aion",
+        "aioffchannel",
+        "aionchannel",
       ];
       if (prefixCommandNames.includes(command)) {
-        const bannedCheck = await BotUser.findOne({ userId: message.author.id, banned: true });
-        if (bannedCheck) return;
         await handlePrefixCommand(message, client, command, args);
         return;
       }
@@ -642,9 +433,9 @@ export async function initBot(): Promise<void> {
 
     if (!isDm && !isMentioned && !isReply) return;
 
-    // Check if user is banned
-    const bannedCheck = await BotUser.findOne({ userId: message.author.id, banned: true });
-    if (bannedCheck) return;
+    // ── Access check for AI replies ────────────────────────────────────────
+    const access = await isAllowed(message.author.id);
+    if (!access.allowed) return;
 
     // Check server/channel AI toggle + NSFW setting
     let isNsfw = false;
@@ -652,7 +443,6 @@ export async function initBot(): Promise<void> {
       const serverConf = await ServerConfig.findOne({ guildId });
       isNsfw = serverConf?.nsfwChannels.includes(message.channelId) ?? false;
 
-      // AI disabled server-wide or in this specific channel
       const aiOff = serverConf?.aiEnabled === false ||
         (serverConf?.aiDisabledChannels ?? []).includes(message.channelId);
       if (aiOff) return;
@@ -674,7 +464,7 @@ export async function initBot(): Promise<void> {
           id: message.author.id,
           username: message.author.username,
           discriminator: message.author.discriminator,
-          avatarUrl: message.author.displayAvatarURL({ size: 256, extension: "png" } as Parameters<typeof message.author.displayAvatarURL>[0]),
+          avatarUrl: message.author.avatarURL({ size: 256 }) ?? undefined,
         },
         guildId
       );
@@ -690,7 +480,6 @@ export async function initBot(): Promise<void> {
 
       await saveHistory(message.author.id, guildId, "assistant", reply);
 
-      // Very rarely react with an emoji (1 in 20 chance)
       if (Math.random() < 0.05) {
         const emojis = ["😏", "💅", "🙄", "😌", "👀"];
         const emoji = emojis[Math.floor(Math.random() * emojis.length)];
@@ -704,612 +493,79 @@ export async function initBot(): Promise<void> {
     }
   });
 
-  // ─── Slash Commands ───────────────────────────────────────────────────────────
-
-  client.on(Events.InteractionCreate, async (interaction) => {
-    if (!interaction.isChatInputCommand()) return;
-
-    const { commandName, user, guildId, channelId } = interaction;
-
-    try {
-      if (commandName === "reset") {
-        await ChatHistory.findOneAndUpdate(
-          { userId: user.id, guildId: guildId ?? "dm" },
-          { $set: { messages: [] } }
-        );
-        await interaction.reply({
-          content: "Done yaar! Teri chat history delete kar di. Fresh start!",
-          ephemeral: true,
-        });
-        return;
-      }
-
-      if (commandName === "nsfw") {
-        const ownerId = process.env.OWNER_DISCORD_ID;
-        if (user.id !== ownerId && !(interaction.memberPermissions?.has("ManageChannels") ?? false)) {
-          await interaction.reply({
-            content: "Yaar tujhe permission nahi hai ye karne ki!",
-            ephemeral: true,
-          });
-          return;
-        }
-
-        const enable = interaction.options.getBoolean("enable", true);
-        if (enable) {
-          await ServerConfig.findOneAndUpdate(
-            { guildId: guildId ?? "unknown" },
-            { $addToSet: { nsfwChannels: channelId } },
-            { upsert: true }
-          );
-          await interaction.reply({
-            content: "NSFW mode on kar diya is channel mein! 😈",
-            ephemeral: true,
-          });
-        } else {
-          await ServerConfig.findOneAndUpdate(
-            { guildId: guildId ?? "unknown" },
-            { $pull: { nsfwChannels: channelId } }
-          );
-          await interaction.reply({
-            content: "NSFW mode off kar diya is channel mein.",
-            ephemeral: true,
-          });
-        }
-        return;
-      }
-
-      if (commandName === "truth") {
-        // Defer immediately so Discord doesn't time out while AI generates
-        await interaction.deferReply();
-        const reply = await generateReply(
-          user.id,
-          guildId ?? "dm",
-          "Mujhe ek interesting truth question do",
-          false
-        );
-        await interaction.editReply(reply);
-        return;
-      }
-
-      if (commandName === "dare") {
-        await interaction.deferReply();
-        const reply = await generateReply(
-          user.id,
-          guildId ?? "dm",
-          "Mujhe ek fun dare do",
-          false
-        );
-        await interaction.editReply(reply);
-        return;
-      }
-
-      // ── Owner-only commands ────────────────────────────────────────────────
-      const ownerId = process.env.OWNER_DISCORD_ID;
-      const ownerCommands = ["ping", "announce", "ban", "unban", "serverlist", "clearhistory"];
-      if (ownerCommands.includes(commandName)) {
-        if (user.id !== ownerId) {
-          await interaction.reply({
-            content: "Yaar ye command sirf owner ke liye hai! Tu owner nahi hai 😤",
-            ephemeral: true,
-          });
-          return;
-        }
-
-        if (commandName === "ping") {
-          const latency = client.ws.ping;
-          const servers = client.guilds.cache.size;
-          const uptime = Math.floor((Date.now() - botStartTime) / 1000 / 60);
-          await interaction.reply({
-            content: `**Priya Status**\n🏓 Latency: ${latency}ms\n🌐 Servers: ${servers}\n⏱️ Uptime: ${uptime} minutes`,
-            ephemeral: true,
-          });
-          return;
-        }
-
-        if (commandName === "announce") {
-          await interaction.deferReply({ ephemeral: true });
-          const msg = interaction.options.getString("message", true);
-          let sent = 0;
-          let failed = 0;
-          for (const [, guild] of client.guilds.cache) {
-            try {
-              const channel = guild.systemChannel ||
-                guild.channels.cache
-                  .filter((c) => c.type === ChannelType.GuildText && c.permissionsFor(guild.members.me!)?.has("SendMessages"))
-                  .first() as TextChannel | undefined;
-              if (channel && "send" in channel) {
-                await (channel as TextChannel).send(msg);
-                sent++;
-              }
-            } catch {
-              failed++;
-            }
-          }
-          await interaction.editReply(
-            `Broadcast complete! Sent to ${sent} server${sent !== 1 ? "s" : ""}${failed > 0 ? `, failed on ${failed}` : ""}.`
-          );
-          return;
-        }
-
-        if (commandName === "ban") {
-          const target = interaction.options.getUser("user", true);
-          const reason = interaction.options.getString("reason") ?? "No reason given";
-          await BotUser.findOneAndUpdate(
-            { userId: target.id },
-            { $set: { banned: true } },
-            { upsert: true }
-          );
-          await interaction.reply({
-            content: `**${target.username}** ko ban kar diya! Reason: ${reason}`,
-            ephemeral: true,
-          });
-          return;
-        }
-
-        if (commandName === "unban") {
-          const targetId = interaction.options.getString("userid", true);
-          const result = await BotUser.findOneAndUpdate(
-            { userId: targetId },
-            { $set: { banned: false } }
-          );
-          if (result) {
-            await interaction.reply({ content: `User \`${targetId}\` ko unban kar diya!`, ephemeral: true });
-          } else {
-            await interaction.reply({ content: `User \`${targetId}\` mili nahi database mein.`, ephemeral: true });
-          }
-          return;
-        }
-
-        if (commandName === "serverlist") {
-          const guilds = client.guilds.cache.map((g) => `• **${g.name}** (${g.memberCount} members)`);
-          const list = guilds.length > 0 ? guilds.join("\n") : "Koi server nahi!";
-          await interaction.reply({
-            content: `**Servers where Priya is present (${guilds.length}):**\n${list}`,
-            ephemeral: true,
-          });
-          return;
-        }
-
-        if (commandName === "clearhistory") {
-          const targetId = interaction.options.getString("userid", true);
-          await ChatHistory.updateMany({ userId: targetId }, { $set: { messages: [] } });
-          await interaction.reply({
-            content: `User \`${targetId}\` ki saari chat history clear kar di!`,
-            ephemeral: true,
-          });
-          return;
-        }
-
-        if (commandName === "setprovider") {
-          const provider = interaction.options.getString("provider", true) as "groq" | "gemini" | "nvidia";
-          await Personality.findOneAndUpdate({}, { $set: { activeProvider: provider } }, { upsert: true });
-          await interaction.reply({
-            content: `Done! Ab Priya **${provider.toUpperCase()}** use karegi. Teri marzi!`,
-            ephemeral: true,
-          });
-          return;
-        }
-      }
-
-      // ── /setpingchannel — set channel for random pings ───────────────────────
-      if (commandName === "setpingchannel") {
-        const isOwner = user.id === process.env.OWNER_DISCORD_ID;
-        const isServerOwner = interaction.guild?.ownerId === user.id;
-        const hasManage = interaction.memberPermissions?.has("ManageGuild") ?? false;
-
-        if (!isOwner && !isServerOwner && !hasManage) {
-          await interaction.reply({
-            content: "Yaar tujhe permission nahi hai ye karne ki! Manage Server chahiye.",
-            ephemeral: true,
-          });
-          return;
-        }
-
-        if (!guildId) {
-          await interaction.reply({ content: "Ye command sirf server mein use hoti hai.", ephemeral: true });
-          return;
-        }
-
-        const ch = interaction.options.getChannel("channel", true);
-        await ServerConfig.findOneAndUpdate(
-          { guildId },
-          { $set: { pingChannelId: ch.id } },
-          { upsert: true }
-        );
-        await interaction.reply({
-          content: `Done! Ab main <#${ch.id}> mein random members ko ping karungi. (Random ping globally on hona chahiye — dashboard se check karo!)`,
-          ephemeral: true,
-        });
-        return;
-      }
-
-      // ── /setwelcome — set welcome channel for this server ───────────────────
-      if (commandName === "setwelcome") {
-        const isOwner = user.id === process.env.OWNER_DISCORD_ID;
-        const isServerOwner = interaction.guild?.ownerId === user.id;
-        const hasManage = interaction.memberPermissions?.has("ManageGuild") ?? false;
-
-        if (!isOwner && !isServerOwner && !hasManage) {
-          await interaction.reply({
-            content: "Yaar tujhe permission nahi hai ye karne ki! Manage Server chahiye.",
-            ephemeral: true,
-          });
-          return;
-        }
-
-        if (!guildId) {
-          await interaction.reply({ content: "Ye command sirf server mein use hoti hai.", ephemeral: true });
-          return;
-        }
-
-        const ch = interaction.options.getChannel("channel", true);
-        await ServerConfig.findOneAndUpdate(
-          { guildId },
-          { $set: { welcomeChannelId: ch.id, welcomeEnabled: true } },
-          { upsert: true }
-        );
-        await interaction.reply({
-          content: `Done! Ab naye members ko <#${ch.id}> mein welcome karungi. Welcome bhi on kar di! 🎉`,
-          ephemeral: true,
-        });
-        return;
-      }
-
-      // ── /welcome — toggle welcome on/off for this server ─────────────────────
-      if (commandName === "welcome") {
-        const isOwner = user.id === process.env.OWNER_DISCORD_ID;
-        const isServerOwner = interaction.guild?.ownerId === user.id;
-        const hasManage = interaction.memberPermissions?.has("ManageGuild") ?? false;
-
-        if (!isOwner && !isServerOwner && !hasManage) {
-          await interaction.reply({
-            content: "Yaar tujhe permission nahi hai ye karne ki! Manage Server chahiye.",
-            ephemeral: true,
-          });
-          return;
-        }
-
-        if (!guildId) {
-          await interaction.reply({ content: "Ye command sirf server mein use hoti hai.", ephemeral: true });
-          return;
-        }
-
-        const enable = interaction.options.getBoolean("enable", true);
-        const serverConf = await ServerConfig.findOneAndUpdate(
-          { guildId },
-          { $set: { welcomeEnabled: enable } },
-          { upsert: true, new: true }
-        );
-
-        if (enable && !serverConf?.welcomeChannelId) {
-          await interaction.reply({
-            content: "Welcome on kar di! Lekin welcome channel set nahi hai — `/setwelcome` se channel set karo warna main system channel use karungi.",
-            ephemeral: true,
-          });
-        } else if (enable) {
-          await interaction.reply({
-            content: `Welcome on kar di! Naye members ko <#${serverConf!.welcomeChannelId}> mein greet karungi.`,
-            ephemeral: true,
-          });
-        } else {
-          await interaction.reply({
-            content: "Welcome off kar di. Naye members ko greet nahi karungi ab.",
-            ephemeral: true,
-          });
-        }
-        return;
-      }
-
-      // ── /say — Administrator only: send a message as Priya ───────────────────
-      if (commandName === "say") {
-        const isAdmin = interaction.memberPermissions?.has("Administrator") ?? false;
-        const isOwner = user.id === process.env.OWNER_DISCORD_ID;
-        if (!isAdmin && !isOwner) {
-          await interaction.reply({
-            content: "Yaar sirf Administrators ye command use kar sakte hain!",
-            ephemeral: true,
-          });
-          return;
-        }
-        if (!guildId) {
-          await interaction.reply({ content: "Ye command sirf server mein use hoti hai.", ephemeral: true });
-          return;
-        }
-
-        const content = interaction.options.getString("content", true);
-        const targetChannel = interaction.options.getChannel("channel") ?? interaction.channel;
-
-        if (!targetChannel || !("send" in targetChannel)) {
-          await interaction.reply({ content: "Channel valid nahi hai!", ephemeral: true });
-          return;
-        }
-
-        // Non-owners cannot ping @everyone/@here/roles — strip them silently
-        const hasMassPing = /@everyone|@here|<@&\d+>/.test(content);
-        if (hasMassPing && !isOwner) {
-          await interaction.reply({
-            content: "⚠️ Mass pings (@everyone, @here, role mentions) allowed nahi hain `/say` mein! Message nahi bheja gaya.",
-            ephemeral: true,
-          });
-          return;
-        }
-
-        await (targetChannel as TextChannel).send({
-          content,
-          // Even for admins, suppress all mention pings unless owner explicitly used them
-          allowedMentions: isOwner ? undefined : { parse: ["users"] },
-        });
-        await interaction.reply({ content: `Done! Message send kar diya <#${targetChannel.id}> mein.`, ephemeral: true });
-        return;
-      }
-
-      // ── /forceadopt — Owner only: forcefully adopt any user ──────────────────
-      if (commandName === "forceadopt") {
-        const isOwner = user.id === process.env.OWNER_DISCORD_ID;
-        if (!isOwner) {
-          await interaction.reply({ content: "Yaar ye sirf bot owner kar sakta hai!", ephemeral: true });
-          return;
-        }
-        if (!guildId) {
-          await interaction.reply({ content: "Ye command sirf server mein use hoti hai.", ephemeral: true });
-          return;
-        }
-
-        await interaction.deferReply();
-
-        const parentUser = interaction.options.getUser("parent", true);
-        const childUser = interaction.options.getUser("child", true);
-
-        if (parentUser.id === childUser.id) {
-          await interaction.editReply("Parent aur child same nahi ho sakte!");
-          return;
-        }
-
-        await Promise.all([
-          UserRelationship.findOneAndUpdate(
-            { userId: parentUser.id, guildId },
-            { $addToSet: { children: childUser.id } },
-            { upsert: true }
-          ),
-          UserRelationship.findOneAndUpdate(
-            { userId: childUser.id, guildId },
-            { $addToSet: { parents: parentUser.id } },
-            { upsert: true }
-          ),
-        ]);
-
-        const snapSize = (n: number): number => {
-          const sizes = [16, 32, 64, 128, 256, 512, 1024, 2048, 4096];
-          let best = sizes[0];
-          for (const s of sizes) { if (s <= n) best = s; else break; }
-          return best;
-        };
-        const toCard = (u: import("discord.js").User): CardUser => ({
-          id: u.id,
-          username: u.displayName ?? u.username,
-          avatarUrl: u.avatarURL({ size: snapSize(256) as 256 }) ?? undefined,
-        });
-
-        try {
-          const buf = await generateAdoptCard(toCard(parentUser), toCard(childUser));
-          await interaction.editReply({
-            content: `✅ Done! **${parentUser.displayName ?? parentUser.username}** ne **${childUser.displayName ?? childUser.username}** ko forcefully adopt kar liya! 🏠`,
-            files: [{ attachment: buf, name: "force-adopt.png" }],
-          });
-        } catch (err) {
-          logger.error({ err }, "forceadopt card failed");
-          await interaction.editReply(`✅ Done! **${parentUser.username}** ne **${childUser.username}** ko adopt kar liya!`);
-        }
-        return;
-      }
-
-      // ── /setupcounter — Admin: post live message-count image in this channel ─
-      if (commandName === "setupcounter") {
-        const isAdmin = interaction.memberPermissions?.has("Administrator") ?? false;
-        const isOwner = user.id === process.env.OWNER_DISCORD_ID;
-        if (!isAdmin && !isOwner) {
-          await interaction.reply({ content: "Yaar sirf Administrators ye set kar sakte hain!", ephemeral: true });
-          return;
-        }
-        if (!guildId || !interaction.guild) {
-          await interaction.reply({ content: "Ye command sirf server mein use hoti hai.", ephemeral: true });
-          return;
-        }
-
-        await interaction.deferReply({ ephemeral: true });
-
-        const guild = interaction.guild;
-        const channel = interaction.channel as TextChannel;
-        const serverConf = await ServerConfig.findOne({ guildId });
-
-        const members = await guild.members.fetch().catch(() => guild.members.cache);
-        const memberCount = members.size;
-        const botCount = members.filter((m) => m.user.bot).size;
-        const memberMap = new Map(members.map((m) => [m.user.id, m]));
-        const topMembers = await getTopMembers(guildId, memberMap);
-
-        const buf = await generateCounterCard({
-          guildName: guild.name,
-          guildIconUrl: guild.iconURL({ size: 256 }) ?? undefined,
-          totalMessages: serverConf?.totalMessages ?? 0,
-          memberCount,
-          botCount,
-          updatedAt: new Date(),
-          topMembers,
-        });
-
-        const posted = await channel.send({
-          content: "",
-          files: [{ attachment: buf, name: "counter.png" }],
-        });
-
-        await ServerConfig.findOneAndUpdate(
-          { guildId },
-          { $set: { counterChannelId: channel.id, counterMessageId: posted.id } },
-          { upsert: true }
-        );
-
-        await interaction.editReply(`✅ Live counter setup kar diya <#${channel.id}> mein! Ye image har 30 seconds mein update hogi. 📊`);
-        return;
-      }
-
-      // ── /setprefix — Admin can change the command prefix ─────────────────────
-      if (commandName === "setprefix") {
-        const isAdmin = interaction.memberPermissions?.has("Administrator") ?? false;
-        const isOwner = user.id === process.env.OWNER_DISCORD_ID;
-        const hasManage = interaction.memberPermissions?.has("ManageGuild") ?? false;
-        if (!isAdmin && !isOwner && !hasManage) {
-          await interaction.reply({
-            content: "Yaar tujhe permission nahi hai! Manage Server ya Administrator chahiye.",
-            ephemeral: true,
-          });
-          return;
-        }
-        if (!guildId) {
-          await interaction.reply({ content: "Ye command sirf server mein use hoti hai.", ephemeral: true });
-          return;
-        }
-
-        const newPrefix = interaction.options.getString("prefix", true).trim();
-        if (!newPrefix || newPrefix.length > 5 || newPrefix.includes(" ")) {
-          await interaction.reply({
-            content: "Prefix 1-5 characters ka hona chahiye aur usme space nahi hona chahiye!",
-            ephemeral: true,
-          });
-          return;
-        }
-
-        await ServerConfig.findOneAndUpdate(
-          { guildId },
-          { $set: { prefix: newPrefix } },
-          { upsert: true }
-        );
-        invalidatePrefixCache(guildId);
-        await interaction.reply({
-          content: `Done! Ab Priya ka prefix **\`${newPrefix}\`** ho gaya. Commands: \`${newPrefix}ship\`, \`${newPrefix}image\`, etc.`,
-          ephemeral: false,
-        });
-        return;
-      }
-
-      // ── /resetserver — server owner or admin can reset entire server history ──
-      if (commandName === "resetserver") {
-        const isOwner = user.id === process.env.OWNER_DISCORD_ID;
-        const isServerOwner = interaction.guild?.ownerId === user.id;
-        const isAdmin = interaction.memberPermissions?.has("Administrator") ?? false;
-
-        if (!isOwner && !isServerOwner && !isAdmin) {
-          await interaction.reply({
-            content: "Yaar sirf server owner ya admin ye kar sakte hain!",
-            ephemeral: true,
-          });
-          return;
-        }
-
-        if (!guildId) {
-          await interaction.reply({ content: "Ye command sirf server mein use hoti hai.", ephemeral: true });
-          return;
-        }
-
-        const result = await ChatHistory.updateMany({ guildId }, { $set: { messages: [] } });
-        await interaction.reply({
-          content: `Done! Is server ke ${result.modifiedCount} users ki chat history clear kar di. Fresh start!`,
-          ephemeral: true,
-        });
-        return;
-      }
-
-      // ── /aioff — Disable AI server-wide ───────────────────────────────────────
-      if (commandName === "aioff" || commandName === "aion") {
-        const isAdmin = interaction.memberPermissions?.has("Administrator") ?? false;
-        const isOwner = user.id === process.env.OWNER_DISCORD_ID;
-        const isServerOwner = interaction.guild?.ownerId === user.id;
-        if (!isAdmin && !isOwner && !isServerOwner) {
-          await interaction.reply({ content: "Yaar sirf admins ye kar sakte hain! 🔒", ephemeral: true });
-          return;
-        }
-        if (!guildId) {
-          await interaction.reply({ content: "Ye command sirf server mein use hoti hai.", ephemeral: true });
-          return;
-        }
-        const enabling = commandName === "aion";
-        await ServerConfig.findOneAndUpdate(
-          { guildId },
-          { $set: { aiEnabled: enabling } },
-          { upsert: true }
-        );
-        await interaction.reply({
-          content: enabling
-            ? "✅ Priya AI replies **on** kar di is server mein! Ab main baat karungi!"
-            : "🔇 Priya AI replies **off** kar di is server mein. Commands abhi bhi kaam karengi.",
-          ephemeral: false,
-        });
-        return;
-      }
-
-      // ── /aioffchannel / /aionchannel — Per-channel AI toggle ─────────────────
-      if (commandName === "aioffchannel" || commandName === "aionchannel") {
-        const isAdmin = interaction.memberPermissions?.has("Administrator") ?? false;
-        const isOwner = user.id === process.env.OWNER_DISCORD_ID;
-        const isServerOwner = interaction.guild?.ownerId === user.id;
-        if (!isAdmin && !isOwner && !isServerOwner) {
-          await interaction.reply({ content: "Yaar sirf admins ye kar sakte hain! 🔒", ephemeral: true });
-          return;
-        }
-        if (!guildId) {
-          await interaction.reply({ content: "Ye command sirf server mein use hoti hai.", ephemeral: true });
-          return;
-        }
-        const targetChannel = interaction.options.get("channel", true).value as string;
-        const disabling = commandName === "aioffchannel";
-        if (disabling) {
-          await ServerConfig.findOneAndUpdate(
-            { guildId },
-            { $addToSet: { aiDisabledChannels: targetChannel } },
-            { upsert: true }
-          );
-          await interaction.reply({
-            content: `🔇 Priya AI replies <#${targetChannel}> mein **off** kar di. Commands abhi bhi kaam karengi.`,
-            ephemeral: false,
-          });
-        } else {
-          await ServerConfig.findOneAndUpdate(
-            { guildId },
-            { $pull: { aiDisabledChannels: targetChannel } },
-            { upsert: true }
-          );
-          await interaction.reply({
-            content: `✅ Priya AI replies <#${targetChannel}> mein **on** kar di! Ab main wahan baat karungi!`,
-            ephemeral: false,
-          });
-        }
-        return;
-      }
-    } catch (err) {
-      logger.error({ err, commandName }, "Slash command error");
-      // Try to inform the user — ignore if interaction already expired
-      try {
-        const msg = "Yaar kuch gadbad ho gayi. Thodi der baad try karo!";
-        if (interaction.deferred || interaction.replied) {
-          await interaction.editReply(msg);
-        } else {
-          await interaction.reply({ content: msg, ephemeral: true });
-        }
-      } catch {
-        // interaction expired — nothing we can do
-      }
-    }
-  });
-
   await client.login(token);
 }
 
+// ─── Whitelist management ─────────────────────────────────────────────────────
+
+async function handleWhitelistCommand(message: Message, args: string[]): Promise<void> {
+  const sub = args[0]?.toLowerCase();
+
+  if (sub === "add") {
+    const targetId = args[1]?.replace(/[<@!>]/g, "").trim();
+    if (!targetId || !/^\d+$/.test(targetId)) {
+      await message.reply("Usage: `!whitelist add <userid>` — valid Discord user ID do!");
+      return;
+    }
+    await BotUser.findOneAndUpdate(
+      { userId: targetId },
+      { $set: { whitelisted: true } },
+      { upsert: true }
+    );
+    await message.reply(`✅ User \`${targetId}\` ko whitelist kar diya! Ab ye Priya se baat kar sakta hai.`);
+    return;
+  }
+
+  if (sub === "remove" || sub === "rem") {
+    const targetId = args[1]?.replace(/[<@!>]/g, "").trim();
+    if (!targetId || !/^\d+$/.test(targetId)) {
+      await message.reply("Usage: `!whitelist remove <userid>` — valid Discord user ID do!");
+      return;
+    }
+    await BotUser.findOneAndUpdate(
+      { userId: targetId },
+      { $set: { whitelisted: false } }
+    );
+    await message.reply(`✅ User \`${targetId}\` ko whitelist se hata diya.`);
+    return;
+  }
+
+  if (sub === "list") {
+    const users = await BotUser.find({ whitelisted: true }).lean();
+    if (users.length === 0) {
+      await message.reply("Abhi koi whitelist mein nahi hai. `!whitelist add <userid>` se add karo!");
+      return;
+    }
+    const lines = users.map((u, i) => `${i + 1}. **${u.username}** (\`${u.userId}\`)`);
+    const chunks: string[] = [];
+    let current = `**Whitelisted Users (${users.length}):**\n`;
+    for (const line of lines) {
+      if ((current + line + "\n").length > 1900) {
+        chunks.push(current);
+        current = "";
+      }
+      current += line + "\n";
+    }
+    if (current) chunks.push(current);
+    for (const chunk of chunks) {
+      await message.reply(chunk).catch(() => {});
+    }
+    return;
+  }
+
+  await message.reply(
+    "**Whitelist Commands:**\n" +
+    "`!whitelist add <userid>` — kisi ko whitelist karo\n" +
+    "`!whitelist remove <userid>` — whitelist se hatao\n" +
+    "`!whitelist list` — saare whitelisted users dekho"
+  );
+}
 
 // ─── Top members helper ───────────────────────────────────────────────────────
 
 async function getTopMembers(
   guildId: string,
-  guildMembers: Map<string, import("discord.js").GuildMember>
+  guildMembers: Map<string, import("discord.js-selfbot-v13").GuildMember>
 ): Promise<CounterMember[]> {
   const top = await BotUser.find({ servers: guildId, banned: { $ne: true } })
     .sort({ messageCount: -1 })
@@ -1345,7 +601,6 @@ function startRandomPingScheduler(client: Client) {
 
         let channel: TextChannel | undefined;
 
-        // Use configured ping channel if set and valid
         if (serverConf?.pingChannelId) {
           const ch = guild.channels.cache.get(serverConf.pingChannelId);
           if (ch && ch.type === ChannelType.GuildText && "send" in ch) {
@@ -1353,7 +608,6 @@ function startRandomPingScheduler(client: Client) {
           }
         }
 
-        // Fall back to a random text channel
         if (!channel) {
           const textChannels = guild.channels.cache.filter(
             (c) => c.type === ChannelType.GuildText
@@ -1364,7 +618,7 @@ function startRandomPingScheduler(client: Client) {
 
         if (!channel) continue;
 
-        const members = (await guild.members.fetch()).filter((m) => !m.user.bot);
+        const members = (await guild.members.fetch()).filter((m) => !m.user.bot && m.user.id !== client.user?.id);
         if (members.size === 0) continue;
 
         const member = members.random();
@@ -1388,7 +642,7 @@ function startRandomPingScheduler(client: Client) {
     }
   };
 
-  const intervalMs = 2 * 60 * 60 * 1000; // 2 hours default
+  const intervalMs = 2 * 60 * 60 * 1000;
   setInterval(schedule, intervalMs);
 }
 
@@ -1411,7 +665,6 @@ function startCounterUpdater(client: Client) {
 
         const msg = await channel.messages.fetch(conf.counterMessageId!).catch(() => null);
         if (!msg) {
-          // Message was deleted — clear the stored IDs
           await ServerConfig.findOneAndUpdate(
             { guildId: conf.guildId },
             { $set: { counterChannelId: null, counterMessageId: null } }
@@ -1438,7 +691,6 @@ function startCounterUpdater(client: Client) {
         await msg.edit({
           content: "",
           files: [{ attachment: buf, name: "counter.png" }],
-          attachments: [],
         });
       } catch (err) {
         logger.warn({ err, guildId: conf.guildId }, "Counter update failed");
@@ -1446,7 +698,6 @@ function startCounterUpdater(client: Client) {
     }
   };
 
-  // Run immediately on start, then every 30 seconds
   tick().catch(() => {});
   setInterval(() => tick().catch(() => {}), 30_000);
 }

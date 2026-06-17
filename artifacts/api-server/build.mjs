@@ -41,6 +41,7 @@ async function buildAll() {
       "re2",
       "farmhash",
       "xxhash-addon",
+      "ffmpeg-static",
       "bufferutil",
       "utf-8-validate",
       "ssh2",

@@ -47,6 +47,7 @@ export interface IBotUser extends Document {
   lastSeen: Date;
   servers: string[];
   banned: boolean;
+  whitelisted: boolean;
   // Personal portal settings
   nickname?: string;           // What Priya calls this user
   pronouns?: string;           // he/him | she/her | they/them | custom
@@ -69,6 +70,7 @@ const BotUserSchema = new Schema<IBotUser>(
     lastSeen: { type: Date, default: () => new Date() },
     servers: [String],
     banned: { type: Boolean, default: false },
+    whitelisted: { type: Boolean, default: false },
     nickname: { type: String, default: null },
     pronouns: { type: String, default: null },
     relationshipVibe: { type: String, default: null },

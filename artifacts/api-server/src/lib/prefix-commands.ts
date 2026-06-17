@@ -1,14 +1,9 @@
 import {
   type Message,
   type Client,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  ComponentType,
-  EmbedBuilder,
-} from "discord.js";
+} from "discord.js-selfbot-v13";
 import { logger } from "./logger";
-import { BotUser, UserRelationship, ServerConfig, ChatHistory } from "./models";
+import { BotUser, UserRelationship, ServerConfig, ChatHistory, Personality } from "./models";
 import {
   calculateLovePercentage,
   generateShipCard,
@@ -47,9 +42,8 @@ export function invalidatePrefixCache(guildId: string) {
   prefixCache.delete(guildId);
 }
 
-// ─── Pending requests (prevent spam) ─────────────────────────────────────────
+// ─── Pending requests ─────────────────────────────────────────────────────────
 
-// key = "marry:guildId:fromId:toId" or "adopt:guildId:fromId:toId"
 const pendingRequests = new Set<string>();
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -63,15 +57,12 @@ async function getOrCreateRelationship(userId: string, guildId: string) {
 }
 
 async function resolveCardUser(userId: string, client: Client, guildId?: string): Promise<CardUser> {
-  // Try Discord first (most reliable, always up-to-date avatar)
   const discordUser = client.users.cache.get(userId) ?? await client.users.fetch(userId).catch(() => null);
   if (discordUser) {
-    const avatarUrl = discordUser.displayAvatarURL({ size: 256, extension: "png" });
-    // Cache in DB for any future use
-    BotUser.updateOne({ userId }, { $set: { avatarUrl, username: discordUser.username } }).catch(() => {});
-    return { id: userId, username: discordUser.username, avatarUrl };
+    const avatarUrl = discordUser.avatarURL({ size: 256 }) ?? undefined;
+    BotUser.updateOne({ userId }, { $set: { avatarUrl: avatarUrl ?? null, username: discordUser.username } }).catch(() => {});
+    return { id: userId, username: discordUser.username, avatarUrl: avatarUrl ?? null };
   }
-  // Fallback to DB record
   const dbUser = await BotUser.findOne({ userId });
   if (dbUser) {
     return { id: userId, username: dbUser.username, avatarUrl: dbUser.avatarUrl ?? null };
@@ -87,20 +78,27 @@ function getMentionedUser(message: Message, args: string[]): string | null {
   return null;
 }
 
-function makeConsentRow(acceptId: string, rejectId: string) {
-  return new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(acceptId)
-      .setLabel("Accept ✅")
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder()
-      .setCustomId(rejectId)
-      .setLabel("Decline ❌")
-      .setStyle(ButtonStyle.Danger)
-  );
+// ─── Text-based consent (replaces buttons) ───────────────────────────────────
+
+async function awaitConsent(
+  message: Message,
+  targetId: string,
+  prompt: string
+): Promise<boolean> {
+  await message.channel.send(prompt);
+  try {
+    const filter = (m: Message) =>
+      m.author.id === targetId &&
+      ["yes", "no", "haan", "nahi", "y", "n"].includes(m.content.toLowerCase().trim());
+    const collected = await message.channel.awaitMessages({ filter, max: 1, time: 60_000, errors: ["time"] });
+    const response = collected.first()?.content.toLowerCase().trim() ?? "no";
+    return response === "yes" || response === "haan" || response === "y";
+  } catch {
+    return false;
+  }
 }
 
-// ─── Command handlers ─────────────────────────────────────────────────────────
+// ─── !ship ────────────────────────────────────────────────────────────────────
 
 async function handleShip(message: Message, client: Client, args: string[]) {
   const guildId = message.guild?.id ?? "dm";
@@ -129,7 +127,7 @@ async function handleShip(message: Message, client: Client, args: string[]) {
     resolveCardUser(user2Id, client, guildId),
   ]);
 
-  let status;
+  let status: Message | null = null;
   try {
     status = await message.reply({ content: "Calculating love... 💕" });
   } catch { return; }
@@ -145,6 +143,8 @@ async function handleShip(message: Message, client: Client, args: string[]) {
     await status.edit(`💕 **${u1.username}** + **${u2.username}** = **${pct}%** compatibility!`).catch(() => {});
   }
 }
+
+// ─── !marry ───────────────────────────────────────────────────────────────────
 
 async function handleMarry(message: Message, client: Client, args: string[]) {
   if (!message.guild) {
@@ -163,7 +163,7 @@ async function handleMarry(message: Message, client: Client, args: string[]) {
     return;
   }
   if (targetId === client.user?.id) {
-    await message.reply("Aww tujhse pyaar hai mujhe, par main bot hun 😔💔 Kisi insaan se kar shaadi!");
+    await message.reply("Aww tujhse pyaar hai mujhe, par main selfbot hun 😔💔 Kisi insaan se kar shaadi!");
     return;
   }
 
@@ -180,18 +180,18 @@ async function handleMarry(message: Message, client: Client, args: string[]) {
 
   if (myRel.marriedTo) {
     const spouse = await resolveCardUser(myRel.marriedTo, client, guildId);
-    await message.reply(`Yaar tu pehle se **${spouse.username}** se married hai! Pehle divorce le.`).catch(() => {});
+    await message.reply(`Yaar tu pehle se **${spouse.username}** se married hai! Pehle divorce le.`);
     return;
   }
   if (theirRel.marriedTo) {
     const target = await resolveCardUser(targetId, client, guildId);
-    await message.reply(`**${target.username}** pehle se kisi aur se married hai!`).catch(() => {});
+    await message.reply(`**${target.username}** pehle se kisi aur se married hai!`);
     return;
   }
   const isMyFamily = myRel.children.includes(targetId) || myRel.parents.includes(targetId);
   const isTheirFamily = theirRel.children.includes(message.author.id) || theirRel.parents.includes(message.author.id);
   if (isMyFamily || isTheirFamily) {
-    await message.reply("Yaar apne hi family member se shaadi? That's weird 🤢").catch(() => {});
+    await message.reply("Yaar apne hi family member se shaadi? That's weird 🤢");
     return;
   }
 
@@ -200,44 +200,15 @@ async function handleMarry(message: Message, client: Client, args: string[]) {
     resolveCardUser(targetId, client, guildId),
   ]);
 
-  // Send proposal with consent buttons
-  const acceptId = `marry_yes_${message.author.id}_${targetId}`;
-  const rejectId = `marry_no_${message.author.id}_${targetId}`;
-  const row = makeConsentRow(acceptId, rejectId);
-
-  const embed = new EmbedBuilder()
-    .setColor(0xffd700)
-    .setTitle("💍 Marriage Proposal!")
-    .setDescription(
-      `**${proposer.username}** is proposing to **${target.username}**!\n\n` +
-      `<@${targetId}>, kya tum **${proposer.username}** se shaadi karna chahte/chahti ho?\n\n` +
-      `*You have 60 seconds to respond!*`
-    )
-    .setFooter({ text: "Only the mentioned user can accept or decline." });
-
-  let proposal: Message;
-  try {
-    proposal = await message.reply({ embeds: [embed], components: [row] });
-  } catch { return; }
-
   pendingRequests.add(pendingKey);
-
   try {
-    const interaction = await proposal.awaitMessageComponent({
-      componentType: ComponentType.Button,
-      filter: (i) => {
-        if (i.user.id !== targetId) {
-          i.reply({ content: "Ye proposal tumhare liye nahi hai! 😤", ephemeral: true }).catch(() => {});
-          return false;
-        }
-        return i.customId === acceptId || i.customId === rejectId;
-      },
-      time: 60_000,
-    });
+    const accepted = await awaitConsent(
+      message,
+      targetId,
+      `💍 **${proposer.username}** ne **${target.username}** ko propose kiya! <@${targetId}>, kya tum shaadi karna chahte ho? Reply \`yes\` ya \`no\` mein (60 seconds hain!)`
+    );
 
-    if (interaction.customId === acceptId) {
-      await interaction.deferUpdate();
-
+    if (accepted) {
       const now = new Date();
       await Promise.all([
         UserRelationship.findOneAndUpdate(
@@ -252,38 +223,25 @@ async function handleMarry(message: Message, client: Client, args: string[]) {
 
       try {
         const buf = await generateMarriageCard(proposer, target, now);
-        await proposal.edit({
-          embeds: [],
-          components: [],
+        await message.channel.send({
           content: `🎉 **${proposer.username}** aur **${target.username}** ab officially married hain! Mubarak ho! 💍`,
           files: [{ attachment: buf, name: "marriage.png" }],
         });
       } catch (err) {
         logger.error({ err }, "Marriage card failed");
-        await proposal.edit({
-          embeds: [],
-          components: [],
-          content: `💍 **${proposer.username}** aur **${target.username}** ab officially married hain! Mubarak ho!`,
-        }).catch(() => {});
+        await message.channel.send(`💍 **${proposer.username}** aur **${target.username}** ab officially married hain! Mubarak ho!`).catch(() => {});
       }
     } else {
-      await interaction.update({
-        embeds: [],
-        components: [],
-        content: `💔 **${target.username}** ne proposal decline kar diya. Better luck next time, **${proposer.username}**!`,
-      });
+      await message.channel.send(`💔 **${target.username}** ne proposal decline kar diya. Better luck next time, **${proposer.username}**!`);
     }
   } catch {
-    // Timed out
-    await proposal.edit({
-      embeds: [],
-      components: [],
-      content: `⏰ **${target.username}** ne 60 seconds mein koi jawab nahi diya. Proposal expire ho gaya! 💨`,
-    }).catch(() => {});
+    await message.channel.send(`⏰ **${target.username}** ne 60 seconds mein jawab nahi diya. Proposal expire ho gaya! 💨`).catch(() => {});
   } finally {
     pendingRequests.delete(pendingKey);
   }
 }
+
+// ─── !divorce ─────────────────────────────────────────────────────────────────
 
 async function handleDivorce(message: Message, client: Client) {
   if (!message.guild) {
@@ -315,6 +273,8 @@ async function handleDivorce(message: Message, client: Client) {
   await message.reply(`Theek hai... **${message.author.username}** aur **${spouse.username}** ab divorced hain. 💔`);
 }
 
+// ─── !adopt ───────────────────────────────────────────────────────────────────
+
 async function handleAdopt(message: Message, client: Client, args: string[]) {
   if (!message.guild) {
     await message.reply("Ye command sirf server mein use hoti hai!");
@@ -329,10 +289,6 @@ async function handleAdopt(message: Message, client: Client, args: string[]) {
   }
   if (targetId === message.author.id) {
     await message.reply("Khud ko adopt nahi kar sakte yaar 😅");
-    return;
-  }
-  if (targetId === client.user?.id) {
-    await message.reply("Main kisi ki child nahi bunti! 😤");
     return;
   }
 
@@ -366,44 +322,15 @@ async function handleAdopt(message: Message, client: Client, args: string[]) {
     resolveCardUser(targetId, client, guildId),
   ]);
 
-  // Send adoption request with consent buttons
-  const acceptId = `adopt_yes_${message.author.id}_${targetId}`;
-  const rejectId = `adopt_no_${message.author.id}_${targetId}`;
-  const row = makeConsentRow(acceptId, rejectId);
-
-  const embed = new EmbedBuilder()
-    .setColor(0x43b581)
-    .setTitle("🏠 Adoption Request!")
-    .setDescription(
-      `**${parent.username}** wants to adopt **${child.username}**!\n\n` +
-      `<@${targetId}>, kya tum **${parent.username}** ki family join karna chahte/chahti ho?\n\n` +
-      `*You have 60 seconds to respond!*`
-    )
-    .setFooter({ text: "Only the mentioned user can accept or decline." });
-
-  let request: Message;
-  try {
-    request = await message.reply({ embeds: [embed], components: [row] });
-  } catch { return; }
-
   pendingRequests.add(pendingKey);
-
   try {
-    const interaction = await request.awaitMessageComponent({
-      componentType: ComponentType.Button,
-      filter: (i) => {
-        if (i.user.id !== targetId) {
-          i.reply({ content: "Ye request tumhare liye nahi hai! 😤", ephemeral: true }).catch(() => {});
-          return false;
-        }
-        return i.customId === acceptId || i.customId === rejectId;
-      },
-      time: 60_000,
-    });
+    const accepted = await awaitConsent(
+      message,
+      targetId,
+      `🏠 **${parent.username}** tumhe adopt karna chahta/chahti hai, <@${targetId}>! Kya tum unki family join karna chahte ho? Reply \`yes\` ya \`no\` mein (60 seconds hain!)`
+    );
 
-    if (interaction.customId === acceptId) {
-      await interaction.deferUpdate();
-
+    if (accepted) {
       await Promise.all([
         UserRelationship.findOneAndUpdate(
           { userId: message.author.id, guildId },
@@ -417,38 +344,25 @@ async function handleAdopt(message: Message, client: Client, args: string[]) {
 
       try {
         const buf = await generateAdoptCard(parent, child);
-        await request.edit({
-          embeds: [],
-          components: [],
+        await message.channel.send({
           content: `🎉 **${parent.username}** ne **${child.username}** ko adopt kar liya! Welcome to the family! 🏠`,
           files: [{ attachment: buf, name: "adopt.png" }],
         });
       } catch (err) {
         logger.error({ err }, "Adopt card failed");
-        await request.edit({
-          embeds: [],
-          components: [],
-          content: `🏠 **${parent.username}** ne **${child.username}** ko adopt kar liya! Welcome to the family!`,
-        }).catch(() => {});
+        await message.channel.send(`🏠 **${parent.username}** ne **${child.username}** ko adopt kar liya! Welcome to the family!`).catch(() => {});
       }
     } else {
-      await interaction.update({
-        embeds: [],
-        components: [],
-        content: `❌ **${child.username}** ne adoption decline kar diya. Better luck next time, **${parent.username}**!`,
-      });
+      await message.channel.send(`❌ **${child.username}** ne adoption decline kar diya. Better luck next time, **${parent.username}**!`);
     }
   } catch {
-    // Timed out
-    await request.edit({
-      embeds: [],
-      components: [],
-      content: `⏰ **${child.username}** ne 60 seconds mein koi jawab nahi diya. Adoption request expire ho gaya! 💨`,
-    }).catch(() => {});
+    await message.channel.send(`⏰ **${child.username}** ne 60 seconds mein jawab nahi diya. Request expire ho gaya! 💨`).catch(() => {});
   } finally {
     pendingRequests.delete(pendingKey);
   }
 }
+
+// ─── !unadopt ─────────────────────────────────────────────────────────────────
 
 async function handleUnadopt(message: Message, client: Client, args: string[]) {
   if (!message.guild) {
@@ -484,6 +398,8 @@ async function handleUnadopt(message: Message, client: Client, args: string[]) {
   await message.reply(`**${target.username}** ko unadopt kar diya. Sad 💔`);
 }
 
+// ─── !family ──────────────────────────────────────────────────────────────────
+
 async function handleFamily(message: Message, client: Client, args: string[]) {
   if (!message.guild) {
     await message.reply("Ye command sirf server mein use hoti hai!");
@@ -492,7 +408,7 @@ async function handleFamily(message: Message, client: Client, args: string[]) {
   const guildId = message.guild.id;
   const targetId = getMentionedUser(message, args) ?? message.author.id;
 
-  let status;
+  let status: Message;
   try {
     status = await message.reply({ content: "Building family tree... 🌳" });
   } catch { return; }
@@ -503,28 +419,19 @@ async function handleFamily(message: Message, client: Client, args: string[]) {
       ? await UserRelationship.findOne({ userId: rel.marriedTo, guildId })
       : null;
 
-    // Direct parents (max 4)
     const parentIds = [...new Set<string>(rel?.parents ?? [])].slice(0, 4);
-
-    // Grandparents: parents of each parent (max 6 total)
     const gpSets = await Promise.all(
       parentIds.map((pid) =>
         UserRelationship.findOne({ userId: pid, guildId }).then((r) => r?.parents ?? [])
       )
     );
     const grandparentIds = [...new Set<string>(gpSets.flat())].slice(0, 6);
-
-    // Children: merge user + spouse children (cap at 12 for layout)
     const ownChildIds: string[] = rel?.children ?? [];
     const spouseChildIds: string[] = spouseRel?.children ?? [];
     const childIds = [...new Set<string>([...ownChildIds, ...spouseChildIds])].slice(0, 12);
-
-    // Fetch per-child: their relationship (spouse + their own children)
     const childRels = await Promise.all(
       childIds.map((cid) => UserRelationship.findOne({ userId: cid, guildId }))
     );
-
-    // For each child that has a spouse, fetch that spouse's rel too (to merge children)
     const childSpouseRels = await Promise.all(
       childRels.map((cr) =>
         cr?.marriedTo
@@ -533,14 +440,12 @@ async function handleFamily(message: Message, client: Client, args: string[]) {
       )
     );
 
-    // Resolve all card users in parallel
     const [userCard, spouseCard, grandparentCards, parentCards, ...childDataArrays] =
       await Promise.all([
         resolveCardUser(targetId, client, guildId),
         rel?.marriedTo ? resolveCardUser(rel.marriedTo, client, guildId) : Promise.resolve(null),
         Promise.all(grandparentIds.map((id) => resolveCardUser(id, client, guildId))),
         Promise.all(parentIds.map((id) => resolveCardUser(id, client, guildId))),
-        // For each child: resolve [childUser, childSpouseUser | null, ...gcUsers]
         ...childIds.map(async (cid, i): Promise<FamilyChildNode> => {
           const cr  = childRels[i];
           const csr = childSpouseRels[i];
@@ -584,7 +489,7 @@ async function handleFamily(message: Message, client: Client, args: string[]) {
   }
 }
 
-// ─── Marriage card command ────────────────────────────────────────────────────
+// ─── !marriagecard ────────────────────────────────────────────────────────────
 
 async function handleMarriageCard(message: Message, client: Client, args: string[]): Promise<void> {
   if (!message.guild) {
@@ -595,7 +500,6 @@ async function handleMarriageCard(message: Message, client: Client, args: string
   const targetId = getMentionedUser(message, args) ?? message.author.id;
 
   const rel = await UserRelationship.findOne({ userId: targetId, guildId });
-
   if (!rel?.marriedTo) {
     const isSelf = targetId === message.author.id;
     await message.reply(
@@ -607,7 +511,6 @@ async function handleMarriageCard(message: Message, client: Client, args: string
   }
 
   const status = await message.reply({ content: "Marriage card bana rahi hun... 💍" });
-
   try {
     const [user, spouse] = await Promise.all([
       resolveCardUser(targetId, client, guildId),
@@ -625,7 +528,7 @@ async function handleMarriageCard(message: Message, client: Client, args: string
   }
 }
 
-// ─── Parents command ──────────────────────────────────────────────────────────
+// ─── !parents ─────────────────────────────────────────────────────────────────
 
 async function handleParents(message: Message, client: Client, args: string[]): Promise<void> {
   if (!message.guild) {
@@ -652,16 +555,11 @@ async function handleParents(message: Message, client: Client, args: string[]): 
     rel.parents.map((id: string) => resolveCardUser(id, client, guildId))
   );
 
-  const embed = new EmbedBuilder()
-    .setColor(0x43b581)
-    .setTitle(`👨‍👩‍👧 ${targetUser.username}'s Parents`)
-    .setDescription(parentCards.map((p, i) => `${i + 1}. **${p.username}** (<@${p.id}>)`).join("\n"))
-    .setFooter({ text: "Use !leave to run away from your family" });
-
-  await message.reply({ embeds: [embed] });
+  const lines = parentCards.map((p, i) => `${i + 1}. **${p.username}** (<@${p.id}>)`).join("\n");
+  await message.reply(`👨‍👩‍👧 **${targetUser.username}'s Parents:**\n${lines}\n\n_Use \`!leave\` to run away from your family_`);
 }
 
-// ─── Profile command ──────────────────────────────────────────────────────────
+// ─── !profile ─────────────────────────────────────────────────────────────────
 
 async function handleProfile(message: Message, client: Client, args: string[]): Promise<void> {
   if (!message.guild) {
@@ -669,8 +567,6 @@ async function handleProfile(message: Message, client: Client, args: string[]): 
     return;
   }
   const guildId = message.guild.id;
-
-  // Target: mentioned user or self
   const targetId = getMentionedUser(message, args) ?? message.author.id;
 
   const status = await message.reply({ content: "Tera profile bana rahi hoon... ✨" });
@@ -681,7 +577,6 @@ async function handleProfile(message: Message, client: Client, args: string[]): 
     UserRelationship.findOne({ userId: targetId, guildId }),
   ]);
 
-  // Resolve spouse name if married
   let spouseName: string | null = null;
   if (rel?.marriedTo) {
     const spouseUser = await resolveCardUser(rel.marriedTo, client, guildId);
@@ -708,7 +603,7 @@ async function handleProfile(message: Message, client: Client, args: string[]): 
   }
 }
 
-// ─── Runaway command ──────────────────────────────────────────────────────────
+// ─── !leave / !runaway ────────────────────────────────────────────────────────
 
 async function handleRunaway(message: Message): Promise<void> {
   if (!message.guild) {
@@ -726,33 +621,23 @@ async function handleRunaway(message: Message): Promise<void> {
   }
 
   const parentIds = [...rel.parents] as string[];
-
-  // Remove self from each parent's children list
   for (const parentId of parentIds) {
     await UserRelationship.findOneAndUpdate(
       { userId: parentId, guildId },
       { $pull: { children: userId } }
     );
   }
-
-  // Clear own parents
   rel.parents = [];
   await rel.save();
 
-  await message.reply({
-    embeds: [
-      new EmbedBuilder()
-        .setColor(0xff6eb4)
-        .setDescription(
-          `🏃💨 **${message.author.username}** ghar se bhaag gaya/gayi!\n` +
-          `${parentIds.length} parent${parentIds.length > 1 ? "s" : ""} se rishta tod diya. Goodbye! 👋`
-        )
-        .setFooter({ text: "Use !adopt to be adopted again" }),
-    ],
-  });
+  await message.reply(
+    `🏃💨 **${message.author.username}** ghar se bhaag gaya/gayi!\n` +
+    `${parentIds.length} parent${parentIds.length > 1 ? "s" : ""} se rishta tod diya. Goodbye! 👋\n` +
+    `_Use \`!adopt\` to be adopted again_`
+  );
 }
 
-// ─── Roast command ────────────────────────────────────────────────────────────
+// ─── !roast ───────────────────────────────────────────────────────────────────
 
 async function handleRoast(message: Message, client: Client, args: string[]): Promise<void> {
   const guildId = message.guild?.id ?? "dm";
@@ -764,10 +649,6 @@ async function handleRoast(message: Message, client: Client, args: string[]): Pr
   }
   if (targetId === message.author.id) {
     await message.reply("Khud ko roast? Itna self-aware hona bhi achi baat nahi yaar 😂");
-    return;
-  }
-  if (targetId === client.user?.id) {
-    await message.reply("Mujhe roast karega? Try karo — main ready hun 😤🔥");
     return;
   }
 
@@ -793,7 +674,7 @@ async function handleRoast(message: Message, client: Client, args: string[]): Pr
   }
 }
 
-// ─── Hug command ──────────────────────────────────────────────────────────────
+// ─── !hug ─────────────────────────────────────────────────────────────────────
 
 async function handleHug(message: Message, client: Client, args: string[]): Promise<void> {
   const guildId = message.guild?.id ?? "dm";
@@ -826,7 +707,7 @@ async function handleHug(message: Message, client: Client, args: string[]): Prom
   }
 }
 
-// ─── Slap command ─────────────────────────────────────────────────────────────
+// ─── !slap ────────────────────────────────────────────────────────────────────
 
 async function handleSlap(message: Message, client: Client, args: string[]): Promise<void> {
   const guildId = message.guild?.id ?? "dm";
@@ -859,7 +740,7 @@ async function handleSlap(message: Message, client: Client, args: string[]): Pro
   }
 }
 
-// ─── 8ball command ────────────────────────────────────────────────────────────
+// ─── !8ball ───────────────────────────────────────────────────────────────────
 
 const EIGHTBALL_RESPONSES = [
   "Bilkul haan! ✨", "Definitely! 💯", "Haan, main sure hun!", "Lagta hai haan yaar!",
@@ -877,18 +758,10 @@ async function handleEightBall(message: Message, args: string[]): Promise<void> 
     return;
   }
   const answer = EIGHTBALL_RESPONSES[Math.floor(Math.random() * EIGHTBALL_RESPONSES.length)];
-  const embed = new EmbedBuilder()
-    .setColor(0x2e0052)
-    .setTitle("🎱 Magic 8-Ball")
-    .addFields(
-      { name: "Sawaal", value: question.length > 200 ? question.slice(0, 197) + "..." : question },
-      { name: "Jawab", value: answer }
-    )
-    .setFooter({ text: "Priya Bot" });
-  await message.reply({ embeds: [embed] });
+  await message.reply(`🎱 **Magic 8-Ball**\n\n**Sawaal:** ${question.length > 200 ? question.slice(0, 197) + "..." : question}\n**Jawab:** ${answer}`);
 }
 
-// ─── Rate command ─────────────────────────────────────────────────────────────
+// ─── !rate ────────────────────────────────────────────────────────────────────
 
 async function handleRate(message: Message, args: string[]): Promise<void> {
   const thing = args.join(" ").trim();
@@ -905,24 +778,14 @@ async function handleRate(message: Message, args: string[]): Promise<void> {
       { role: "user" as const, content: `Rate "${thing}" out of 10 with a short funny explanation in Priya's style. Format: "[number]/10 — [short reason]". Keep it under 2 sentences.` },
     ];
     const rating = (await getAiResponse(rateMessages, personality.activeProvider as "groq" | "gemini" | "nvidia")).trim();
-
-    const embed = new EmbedBuilder()
-      .setColor(0x9b59b6)
-      .setTitle("⭐ Priya's Rating")
-      .addFields(
-        { name: "Cheez", value: thing.length > 200 ? thing.slice(0, 197) + "..." : thing },
-        { name: "Rating", value: rating }
-      )
-      .setFooter({ text: "Priya's honest opinion 😌" });
-
-    await status.edit({ content: "", embeds: [embed] });
+    await status.edit(`⭐ **Priya's Rating**\n\n**Cheez:** ${thing.length > 200 ? thing.slice(0, 197) + "..." : thing}\n**Rating:** ${rating}`);
   } catch (err) {
     logger.error({ err }, "Rate command failed");
     await status.edit("Yaar rate nahi kar paai abhi 😅").catch(() => {});
   }
 }
 
-// ─── Coinflip command ─────────────────────────────────────────────────────────
+// ─── !coinflip ────────────────────────────────────────────────────────────────
 
 async function handleCoinflip(message: Message): Promise<void> {
   const result = Math.random() < 0.5 ? "Heads 🪙" : "Tails 🔄";
@@ -934,335 +797,7 @@ async function handleCoinflip(message: Message): Promise<void> {
   await message.reply(`🪙 **${result}!** — ${comment}`);
 }
 
-// ─── Help command ─────────────────────────────────────────────────────────────
-
-async function handleHelp(message: Message, prefix: string): Promise<void> {
-  const siteUrl = process.env.SITE_URL?.replace(/\/$/, "");
-  const isOwner = message.author.id === process.env.OWNER_DISCORD_ID;
-
-  type HelpPage = { id: string; label: string; emoji: string; color: number; title: string; desc: string; fields: { name: string; value: string; inline?: boolean }[] };
-
-  const pages: HelpPage[] = [
-    {
-      id: "fun",
-      label: "Fun & Games",
-      emoji: "🎮",
-      color: 0xe74c3c,
-      title: "🎮 Fun & Games",
-      desc: "Timepass ke liye best commands hai yaar!",
-      fields: [
-        { name: "`" + prefix + "roast @user`", value: "Kisi ko AI se roast karwao 🔥", inline: true },
-        { name: "`" + prefix + "hug @user`", value: "Kisi ko hug karo 🤗", inline: true },
-        { name: "`" + prefix + "slap @user`", value: "Kisi ko thappad maro 👋", inline: true },
-        { name: "`" + prefix + "ship @user1 @user2`", value: "Dono ki compatibility check karo 💘", inline: true },
-        { name: "`" + prefix + "8ball <sawaal>`", value: "Magic 8-ball se poochho 🎱", inline: true },
-        { name: "`" + prefix + "rate <kuch bhi>`", value: "Priya rate karegi ⭐", inline: true },
-        { name: "`" + prefix + "coinflip`", value: "Heads ya tails? 🪙", inline: true },
-        { name: "`" + prefix + "snipe`", value: "Last deleted message dekho 🔍", inline: true },
-        { name: "`" + prefix + "rank [@user]`", value: "Server mein apna rank dekho 📊", inline: true },
-        { name: "`" + prefix + "lb`", value: "Server leaderboard dekho 🏆", inline: true },
-        ...(siteUrl ? [{ name: "🌐 Portal", value: `[User Portal](${siteUrl}/dashboard/portal) — Chat history & settings`, inline: false }] : []),
-      ],
-    },
-    {
-      id: "family",
-      label: "Family",
-      emoji: "👨‍👩‍👧",
-      color: 0x2ecc71,
-      title: "👨‍👩‍👧 Family System",
-      desc: "Apna parivaar banao, rishtey nibhao!",
-      fields: [
-        { name: "`" + prefix + "marry @user`", value: "Kisi ko propose karo 💍", inline: true },
-        { name: "`" + prefix + "divorce`", value: "Partner se alag ho jao 💔", inline: true },
-        { name: "`" + prefix + "adopt @user`", value: "Kisi ko apna bachcha banao 👶", inline: true },
-        { name: "`" + prefix + "unadopt @user`", value: "Bachche ko unadopt karo 🚪", inline: true },
-        { name: "`" + prefix + "leave`", value: "Apne parents se bhaag jao 🏃", inline: true },
-        { name: "`" + prefix + "parents [@user]`", value: "Parents dekho 👨‍👩‍👧", inline: true },
-        { name: "`" + prefix + "family [@user]`", value: "Pura parivaar dekho 🏠", inline: true },
-        { name: "`" + prefix + "profile [@user]`", value: "Profile card dekho ✨", inline: true },
-        { name: "`" + prefix + "marriagecard [@user]`", value: "Marriage card dekho 💍", inline: true },
-      ],
-    },
-    {
-      id: "slash",
-      label: "Slash Commands",
-      emoji: "⚡",
-      color: 0x3498db,
-      title: "⚡ Slash Commands",
-      desc: "Ye `/` se start hote hain — Discord mein type karo `/` aur dekho!",
-      fields: [
-        { name: "`/nsfw enable:true/false`", value: "Channel mein NSFW on/off karo 🔞", inline: true },
-        { name: "`/reset`", value: "Apni chat history Priya ke saath reset karo 🗑️", inline: true },
-        { name: "`/truth`", value: "Priya se sach poochho 🤔", inline: true },
-        { name: "`/dare`", value: "Priya se dare lo 😈", inline: true },
-        { name: "`/setprefix <prefix>`", value: "Server prefix change karo (Admin) ⚙️", inline: true },
-        { name: "`/setpingchannel #channel`", value: "Random ping channel set karo 🎯", inline: true },
-        { name: "`/setwelcome #channel`", value: "Welcome channel set karo 👋", inline: true },
-        { name: "`/aioff` / `/aion`", value: "Priya AI replies on/off karo (Admin) 🤖", inline: true },
-        { name: "`/say <msg> [#channel]`", value: "Priya se kuch bulwao (Admin) 🗣️", inline: true },
-        { name: "`/resetserver`", value: "Server ki saari history clear karo (Admin) ⚠️", inline: true },
-      ],
-    },
-  ];
-
-  if (isOwner) {
-    pages.push({
-      id: "owner",
-      label: "Owner",
-      emoji: "🔒",
-      color: 0xf39c12,
-      title: "🔒 Owner Commands",
-      desc: "Sirf bot owner ke liye — baaki log door raho! 😤",
-      fields: [
-        { name: "`" + prefix + "forceadopt @parent @child`", value: "Kisi ko forcefully adopt karwao 👑", inline: true },
-        { name: "`" + prefix + "botban <userid>`", value: "Kisi ko bot se ban karo 🔨", inline: true },
-        { name: "`" + prefix + "botunban <userid>`", value: "Bot ban hatao ✅", inline: true },
-        { name: "`" + prefix + "clearhistory <userid>`", value: "Kisi ki saari chat history delete karo 🗑️", inline: true },
-        { name: "`/ping`", value: "Bot status check karo 🏓", inline: true },
-        { name: "`/announce <msg>`", value: "Saare servers mein broadcast karo 📢", inline: true },
-        { name: "`/ban @user`", value: "Kisi ko bot se ban karo 🔨", inline: true },
-        { name: "`/unban <userid>`", value: "Ban hatao ✅", inline: true },
-        { name: "`/serverlist`", value: "Saare servers ki list dekho 📋", inline: true },
-        { name: "`/clearhistory <userid>`", value: "Kisi ki chat history clear karo 🗑️", inline: true },
-        { name: "`/forceadopt @parent @child`", value: "Force adoption karo 👑", inline: true },
-        { name: "`/setprovider <provider>`", value: "AI provider change karo 🤖", inline: true },
-        ...(siteUrl ? [{ name: "🌐 Dashboard", value: `[Owner Dashboard](${siteUrl}/dashboard/login)`, inline: false }] : []),
-      ],
-    });
-  }
-
-  let currentPage = 0;
-
-  function buildEmbed(page: HelpPage, pageNum: number): EmbedBuilder {
-    return new EmbedBuilder()
-      .setColor(page.color)
-      .setTitle(page.title)
-      .setDescription(page.desc)
-      .addFields(page.fields)
-      .setFooter({ text: `Page ${pageNum + 1}/${pages.length}  •  Prefix: ${prefix}  •  Priya Bot` })
-      .setTimestamp();
-  }
-
-  function buildRow(activePage: number): ActionRowBuilder<ButtonBuilder> {
-    const row = new ActionRowBuilder<ButtonBuilder>();
-    for (let i = 0; i < pages.length; i++) {
-      row.addComponents(
-        new ButtonBuilder()
-          .setCustomId(`help_page_${i}`)
-          .setLabel(pages[i].label)
-          .setEmoji(pages[i].emoji)
-          .setStyle(i === activePage ? ButtonStyle.Primary : ButtonStyle.Secondary)
-          .setDisabled(i === activePage)
-      );
-    }
-    return row;
-  }
-
-  const reply = await message.reply({
-    embeds: [buildEmbed(pages[currentPage], currentPage)],
-    components: [buildRow(currentPage)],
-  });
-
-  const collector = reply.createMessageComponentCollector({
-    componentType: ComponentType.Button,
-    filter: (i) => i.user.id === message.author.id && i.customId.startsWith("help_page_"),
-    time: 120_000,
-  });
-
-  collector.on("collect", async (interaction) => {
-    const idx = parseInt(interaction.customId.replace("help_page_", ""), 10);
-    if (isNaN(idx) || idx < 0 || idx >= pages.length) return;
-    currentPage = idx;
-    await interaction.update({
-      embeds: [buildEmbed(pages[currentPage], currentPage)],
-      components: [buildRow(currentPage)],
-    });
-  });
-
-  collector.on("end", async () => {
-    const disabledRow = new ActionRowBuilder<ButtonBuilder>();
-    for (let i = 0; i < pages.length; i++) {
-      disabledRow.addComponents(
-        new ButtonBuilder()
-          .setCustomId(`help_page_expired_${i}`)
-          .setLabel(pages[i].label)
-          .setEmoji(pages[i].emoji)
-          .setStyle(i === currentPage ? ButtonStyle.Primary : ButtonStyle.Secondary)
-          .setDisabled(true)
-      );
-    }
-    await reply.edit({ components: [disabledRow] }).catch(() => {});
-  });
-}
-
-// ─── Owner-only prefix commands ───────────────────────────────────────────────
-
-async function isOwnerCheck(message: Message): Promise<boolean> {
-  if (message.author.id !== process.env.OWNER_DISCORD_ID) {
-    await message.reply("Yaar ye command sirf bot owner ke liye hai! Tu owner nahi hai 😤");
-    return false;
-  }
-  return true;
-}
-
-async function handleForceAdopt(message: Message, client: Client, args: string[]): Promise<void> {
-  if (!(await isOwnerCheck(message))) return;
-  if (!message.guild) {
-    await message.reply("Ye command sirf server mein use hoti hai!");
-    return;
-  }
-
-  const mentionedIds = message.mentions.users.map((u) => u.id);
-  if (mentionedIds.length < 2) {
-    await message.reply("Usage: `forceadopt @parent @child` — dono ko mention karo!");
-    return;
-  }
-
-  const [parentId, childId] = mentionedIds;
-  if (parentId === childId) {
-    await message.reply("Parent aur child same nahi ho sakte!");
-    return;
-  }
-
-  const guildId = message.guild.id;
-  const status = await message.reply("Processing... ⏳");
-
-  await Promise.all([
-    UserRelationship.findOneAndUpdate(
-      { userId: parentId, guildId },
-      { $addToSet: { children: childId } },
-      { upsert: true }
-    ),
-    UserRelationship.findOneAndUpdate(
-      { userId: childId, guildId },
-      { $addToSet: { parents: parentId } },
-      { upsert: true }
-    ),
-  ]);
-
-  const parentUser = client.users.cache.get(parentId) ?? await client.users.fetch(parentId).catch(() => null);
-  const childUser = client.users.cache.get(childId) ?? await client.users.fetch(childId).catch(() => null);
-
-  const parentName = parentUser?.displayName ?? parentUser?.username ?? `User#${parentId.slice(-4)}`;
-  const childName = childUser?.displayName ?? childUser?.username ?? `User#${childId.slice(-4)}`;
-
-  try {
-    const toCard = (u: import("discord.js").User): CardUser => ({
-      id: u.id,
-      username: u.displayName ?? u.username,
-      avatarUrl: u.avatarURL({ size: 256 }) ?? undefined,
-    });
-    if (parentUser && childUser) {
-      const buf = await generateAdoptCard(toCard(parentUser), toCard(childUser));
-      await status.edit({
-        content: `✅ Done! **${parentName}** ne **${childName}** ko forcefully adopt kar liya! 👑`,
-        files: [{ attachment: buf, name: "force-adopt.png" }],
-      });
-      return;
-    }
-  } catch (err) {
-    logger.error({ err }, "forceadopt card failed");
-  }
-
-  await status.edit(`✅ Done! **${parentName}** ne **${childName}** ko forcefully adopt kar liya! 👑`);
-}
-
-async function handleBotBan(message: Message, args: string[]): Promise<void> {
-  if (!(await isOwnerCheck(message))) return;
-
-  const targetId = args[0]?.replace(/[<@!>]/g, "").trim();
-  if (!targetId || !/^\d+$/.test(targetId)) {
-    await message.reply("Usage: `botban <userid>` — valid Discord user ID do!");
-    return;
-  }
-
-  await BotUser.findOneAndUpdate(
-    { userId: targetId },
-    { $set: { banned: true } },
-    { upsert: true }
-  );
-
-  await message.reply(`🔨 User \`${targetId}\` ko bot se ban kar diya! Ab ye Priya se baat nahi kar sakta.`);
-}
-
-async function handleBotUnban(message: Message, args: string[]): Promise<void> {
-  if (!(await isOwnerCheck(message))) return;
-
-  const targetId = args[0]?.replace(/[<@!>]/g, "").trim();
-  if (!targetId || !/^\d+$/.test(targetId)) {
-    await message.reply("Usage: `botunban <userid>` — valid Discord user ID do!");
-    return;
-  }
-
-  const result = await BotUser.findOneAndUpdate(
-    { userId: targetId },
-    { $set: { banned: false } }
-  );
-
-  if (result) {
-    await message.reply(`✅ User \`${targetId}\` ka bot ban hata diya! Ab ye Priya se baat kar sakta hai.`);
-  } else {
-    await message.reply(`⚠️ User \`${targetId}\` database mein mila nahi — shayad kabhi baat hi nahi ki!`);
-  }
-}
-
-async function handleClearHistory(message: Message, args: string[]): Promise<void> {
-  if (!(await isOwnerCheck(message))) return;
-
-  const targetId = args[0]?.replace(/[<@!>]/g, "").trim();
-  if (!targetId || !/^\d+$/.test(targetId)) {
-    await message.reply("Usage: `clearhistory <userid>` — valid Discord user ID do!");
-    return;
-  }
-
-  const result = await ChatHistory.updateMany({ userId: targetId }, { $set: { messages: [] } });
-  await message.reply(
-    `🗑️ User \`${targetId}\` ki **${result.modifiedCount}** chat histories clear kar di! Priya unhe bilkul naya jaanegi.`
-  );
-}
-
-// ─── !snipe ───────────────────────────────────────────────────────────────────
-
-async function handleSnipe(message: Message, args: string[]): Promise<void> {
-  if (!message.guild) {
-    await message.reply("Ye command sirf server mein use hoti hai!");
-    return;
-  }
-  const snipes = snipeStore.get(message.channelId);
-  if (!snipes || snipes.length === 0) {
-    await message.reply("Is channel mein koi deleted message nahi mila yaar! 🤷");
-    return;
-  }
-
-  const requestedIdx = parseInt(args[0] ?? "1");
-  const idx = Math.max(0, Math.min(isNaN(requestedIdx) ? 0 : requestedIdx - 1, snipes.length - 1));
-  const deleted = snipes[idx];
-  const total = snipes.length;
-
-  let status: Message | null = null;
-  try {
-    status = await message.reply("Snooping around... 🔍");
-    const buf = await generateSnipeCard(deleted);
-    await status.delete().catch(() => {});
-    if ("send" in message.channel) {
-      await message.channel.send({
-        content: total > 1 ? `📋 Snipe **${idx + 1}/${total}** — use \`!snipe 2\`, \`!snipe 3\` etc. for older ones` : undefined,
-        files: [{ attachment: buf, name: "snipe.png" }],
-      });
-    }
-  } catch (err) {
-    logger.error({ err }, "Snipe card generation failed");
-    if (status) {
-      await status.edit(
-        `🔍 [${idx + 1}/${total}] **${deleted.authorName}** said: ${deleted.content.slice(0, 200)}`
-      ).catch(() => {});
-    }
-  }
-}
-
-// ─── Main dispatcher ──────────────────────────────────────────────────────────
-
-// ─── !rank / !m ───────────────────────────────────────────────────────────────
+// ─── !rank ────────────────────────────────────────────────────────────────────
 
 async function handleRank(message: Message, client: Client, args: string[]): Promise<void> {
   if (!message.guild) {
@@ -1275,7 +810,6 @@ async function handleRank(message: Message, client: Client, args: string[]): Pro
   const dbUser = await BotUser.findOne({ userId: targetId });
   const count = dbUser?.messageCount ?? 0;
 
-  // Find rank — count how many users in this server have MORE messages
   const rank = (await BotUser.countDocuments({ servers: guildId, messageCount: { $gt: count }, banned: { $ne: true } })) + 1;
   const total = await BotUser.countDocuments({ servers: guildId, banned: { $ne: true } });
 
@@ -1292,7 +826,7 @@ async function handleRank(message: Message, client: Client, args: string[]): Pro
   );
 }
 
-// ─── !lb ──────────────────────────────────────────────────────────────────────
+// ─── !lb (leaderboard) ────────────────────────────────────────────────────────
 
 async function handleLeaderboard(message: Message, client: Client): Promise<void> {
   if (!message.guild) {
@@ -1353,32 +887,664 @@ async function handleResetCount(message: Message): Promise<void> {
   }
 
   const member = message.guild.members.cache.get(message.author.id);
-  const isAdmin = member?.permissions.has("Administrator") ?? false;
+  const isAdmin = member?.permissions.has("ADMINISTRATOR") ?? false;
   const isServerOwner = message.guild.ownerId === message.author.id;
+  const isOwner = message.author.id === process.env.OWNER_DISCORD_ID;
 
-  if (!isAdmin && !isServerOwner) {
+  if (!isAdmin && !isServerOwner && !isOwner) {
     await message.reply("❌ Yaar sirf server admins ye kar sakte hain!");
     return;
   }
 
   const guildId = message.guild.id;
+  const result = await BotUser.updateMany({ servers: guildId }, { $set: { messageCount: 0 } });
+  await ServerConfig.findOneAndUpdate({ guildId }, { $set: { totalMessages: 0 } });
 
-  // Reset all users' messageCount who are in this server to 0
-  const result = await BotUser.updateMany(
-    { servers: guildId },
-    { $set: { messageCount: 0 } }
+  await message.reply(`✅ Done! **${result.modifiedCount}** users ke message counts reset kar diye. Leaderboard ab zero se shuru hoga! 🔄`);
+}
+
+// ─── !snipe ───────────────────────────────────────────────────────────────────
+
+async function handleSnipe(message: Message, args: string[]): Promise<void> {
+  if (!message.guild) {
+    await message.reply("Ye command sirf server mein use hoti hai!");
+    return;
+  }
+  const snipes = snipeStore.get(message.channelId);
+  if (!snipes || snipes.length === 0) {
+    await message.reply("Is channel mein koi deleted message nahi mila yaar! 🤷");
+    return;
+  }
+
+  const requestedIdx = parseInt(args[0] ?? "1");
+  const idx = Math.max(0, Math.min(isNaN(requestedIdx) ? 0 : requestedIdx - 1, snipes.length - 1));
+  const deleted = snipes[idx];
+  const total = snipes.length;
+
+  let status: Message | null = null;
+  try {
+    status = await message.reply("Snooping around... 🔍");
+    const buf = await generateSnipeCard(deleted);
+    await status.delete().catch(() => {});
+    if ("send" in message.channel) {
+      await message.channel.send({
+        content: total > 1 ? `📋 Snipe **${idx + 1}/${total}** — use \`!snipe 2\`, \`!snipe 3\` etc. for older ones` : undefined,
+        files: [{ attachment: buf, name: "snipe.png" }],
+      });
+    }
+  } catch (err) {
+    logger.error({ err }, "Snipe card generation failed");
+    if (status) {
+      await status.edit(
+        `🔍 [${idx + 1}/${total}] **${deleted.authorName}** said: ${deleted.content.slice(0, 200)}`
+      ).catch(() => {});
+    }
+  }
+}
+
+// ─── Owner-only commands ──────────────────────────────────────────────────────
+
+async function isOwnerCheck(message: Message): Promise<boolean> {
+  if (message.author.id !== process.env.OWNER_DISCORD_ID) {
+    await message.reply("Yaar ye command sirf bot owner ke liye hai! Tu owner nahi hai 😤");
+    return false;
+  }
+  return true;
+}
+
+async function handleForceAdopt(message: Message, client: Client, args: string[]): Promise<void> {
+  if (!(await isOwnerCheck(message))) return;
+  if (!message.guild) {
+    await message.reply("Ye command sirf server mein use hoti hai!");
+    return;
+  }
+
+  const mentionedIds = message.mentions.users.map((u) => u.id);
+  if (mentionedIds.length < 2) {
+    await message.reply("Usage: `forceadopt @parent @child` — dono ko mention karo!");
+    return;
+  }
+
+  const [parentId, childId] = mentionedIds;
+  if (parentId === childId) {
+    await message.reply("Parent aur child same nahi ho sakte!");
+    return;
+  }
+
+  const guildId = message.guild.id;
+  const status = await message.reply("Processing... ⏳");
+
+  await Promise.all([
+    UserRelationship.findOneAndUpdate(
+      { userId: parentId, guildId },
+      { $addToSet: { children: childId } },
+      { upsert: true }
+    ),
+    UserRelationship.findOneAndUpdate(
+      { userId: childId, guildId },
+      { $addToSet: { parents: parentId } },
+      { upsert: true }
+    ),
+  ]);
+
+  const parentUser = client.users.cache.get(parentId) ?? await client.users.fetch(parentId).catch(() => null);
+  const childUser = client.users.cache.get(childId) ?? await client.users.fetch(childId).catch(() => null);
+  const parentName = parentUser?.displayName ?? parentUser?.username ?? `User#${parentId.slice(-4)}`;
+  const childName = childUser?.displayName ?? childUser?.username ?? `User#${childId.slice(-4)}`;
+
+  try {
+    if (parentUser && childUser) {
+      const toCard = (u: import("discord.js-selfbot-v13").User): CardUser => ({
+        id: u.id,
+        username: u.displayName ?? u.username,
+        avatarUrl: u.avatarURL({ size: 256 }) ?? undefined,
+      });
+      const buf = await generateAdoptCard(toCard(parentUser), toCard(childUser));
+      await status.edit({
+        content: `✅ Done! **${parentName}** ne **${childName}** ko forcefully adopt kar liya! 👑`,
+        files: [{ attachment: buf, name: "force-adopt.png" }],
+      });
+      return;
+    }
+  } catch (err) {
+    logger.error({ err }, "forceadopt card failed");
+  }
+
+  await status.edit(`✅ Done! **${parentName}** ne **${childName}** ko adopt kar liya! 👑`);
+}
+
+async function handleBotBan(message: Message, args: string[]): Promise<void> {
+  if (!(await isOwnerCheck(message))) return;
+
+  const targetId = args[0]?.replace(/[<@!>]/g, "").trim();
+  if (!targetId || !/^\d+$/.test(targetId)) {
+    await message.reply("Usage: `!botban <userid>` — valid Discord user ID do!");
+    return;
+  }
+
+  await BotUser.findOneAndUpdate(
+    { userId: targetId },
+    { $set: { banned: true } },
+    { upsert: true }
   );
+  await message.reply(`🔨 User \`${targetId}\` ko bot se ban kar diya! Ab ye Priya se baat nahi kar sakta.`);
+}
 
-  // Reset server total message counter
-  await ServerConfig.findOneAndUpdate(
-    { guildId },
-    { $set: { totalMessages: 0 } }
+async function handleBotUnban(message: Message, args: string[]): Promise<void> {
+  if (!(await isOwnerCheck(message))) return;
+
+  const targetId = args[0]?.replace(/[<@!>]/g, "").trim();
+  if (!targetId || !/^\d+$/.test(targetId)) {
+    await message.reply("Usage: `!botunban <userid>` — valid Discord user ID do!");
+    return;
+  }
+
+  const result = await BotUser.findOneAndUpdate(
+    { userId: targetId },
+    { $set: { banned: false } }
   );
+  if (result) {
+    await message.reply(`✅ User \`${targetId}\` ka bot ban hata diya!`);
+  } else {
+    await message.reply(`⚠️ User \`${targetId}\` database mein mila nahi.`);
+  }
+}
 
+async function handleClearHistory(message: Message, args: string[]): Promise<void> {
+  if (!(await isOwnerCheck(message))) return;
+
+  const targetId = args[0]?.replace(/[<@!>]/g, "").trim();
+  if (!targetId || !/^\d+$/.test(targetId)) {
+    await message.reply("Usage: `!clearhistory <userid>` — valid Discord user ID do!");
+    return;
+  }
+
+  const result = await ChatHistory.updateMany({ userId: targetId }, { $set: { messages: [] } });
+  await message.reply(`🗑️ User \`${targetId}\` ki **${result.modifiedCount}** chat histories clear kar di!`);
+}
+
+// ─── Owner commands — formerly slash commands ─────────────────────────────────
+
+async function handlePing(message: Message, client: Client): Promise<void> {
+  if (!(await isOwnerCheck(message))) return;
+  const latency = client.ws.ping;
+  const servers = client.guilds.cache.size;
+  const uptime = Math.floor((Date.now() - (await import("./bot").then(b => b.botStartTime))) / 1000 / 60);
   await message.reply(
-    `✅ Done! **${result.modifiedCount}** users ke message counts reset kar diye. Leaderboard ab zero se shuru hoga! 🔄`
+    `**Priya Status**\n🏓 Latency: ${latency}ms\n🌐 Servers: ${servers}\n⏱️ Uptime: ${uptime} minutes`
   );
 }
+
+async function handleAnnounce(message: Message, client: Client, args: string[]): Promise<void> {
+  if (!(await isOwnerCheck(message))) return;
+  const msg = args.join(" ").trim();
+  if (!msg) {
+    await message.reply("Usage: `!announce <message>`");
+    return;
+  }
+  let sent = 0; let failed = 0;
+  for (const [, guild] of client.guilds.cache) {
+    try {
+      const channel = guild.systemChannel ?? guild.channels.cache.filter((c) => c.type === "GUILD_TEXT").first();
+      if (channel && "send" in channel) {
+        await (channel as TextChannel).send(msg);
+        sent++;
+      }
+    } catch { failed++; }
+  }
+  await message.reply(`📢 Broadcast complete! Sent to ${sent} server${sent !== 1 ? "s" : ""}${failed > 0 ? `, failed on ${failed}` : ""}.`);
+}
+
+async function handleServerList(message: Message, client: Client): Promise<void> {
+  if (!(await isOwnerCheck(message))) return;
+  const guilds = client.guilds.cache.map((g) => `• **${g.name}** (${g.memberCount} members)`);
+  const list = guilds.length > 0 ? guilds.join("\n") : "Koi server nahi!";
+  const text = `**Servers where Priya is present (${guilds.length}):**\n${list}`;
+  if (text.length <= 2000) {
+    await message.reply(text);
+  } else {
+    const chunks = text.match(/[\s\S]{1,1900}/g) ?? [];
+    for (const chunk of chunks) await message.reply(chunk).catch(() => {});
+  }
+}
+
+async function handleSetPrefix(message: Message, args: string[]): Promise<void> {
+  if (!message.guild) {
+    await message.reply("Ye command sirf server mein use hoti hai!");
+    return;
+  }
+  const member = message.guild.members.cache.get(message.author.id);
+  const isAdmin = member?.permissions.has("ADMINISTRATOR") ?? false;
+  const isOwner = message.author.id === process.env.OWNER_DISCORD_ID;
+  const hasManage = member?.permissions.has("MANAGE_GUILD") ?? false;
+  if (!isAdmin && !isOwner && !hasManage) {
+    await message.reply("Yaar tujhe permission nahi hai! Admin ya Manage Server chahiye.");
+    return;
+  }
+  const newPrefix = args[0]?.trim();
+  if (!newPrefix || newPrefix.length > 5 || newPrefix.includes(" ")) {
+    await message.reply("Prefix 1-5 characters ka hona chahiye aur usme space nahi hona chahiye!");
+    return;
+  }
+  await ServerConfig.findOneAndUpdate(
+    { guildId: message.guild.id },
+    { $set: { prefix: newPrefix } },
+    { upsert: true }
+  );
+  invalidatePrefixCache(message.guild.id);
+  await message.reply(`Done! Ab Priya ka prefix **\`${newPrefix}\`** ho gaya.`);
+}
+
+async function handleNsfw(message: Message, args: string[]): Promise<void> {
+  if (!message.guild) {
+    await message.reply("Ye command sirf server mein use hoti hai!");
+    return;
+  }
+  const member = message.guild.members.cache.get(message.author.id);
+  const isOwner = message.author.id === process.env.OWNER_DISCORD_ID;
+  const hasManage = member?.permissions.has("MANAGE_CHANNELS") ?? false;
+  if (!isOwner && !hasManage) {
+    await message.reply("Yaar tujhe permission nahi hai ye karne ki!");
+    return;
+  }
+  const enable = ["on", "enable", "true", "1"].includes(args[0]?.toLowerCase() ?? "");
+  const guildId = message.guild.id;
+  if (enable) {
+    await ServerConfig.findOneAndUpdate(
+      { guildId },
+      { $addToSet: { nsfwChannels: message.channelId } },
+      { upsert: true }
+    );
+    await message.reply("NSFW mode on kar diya is channel mein! 😈");
+  } else {
+    await ServerConfig.findOneAndUpdate(
+      { guildId },
+      { $pull: { nsfwChannels: message.channelId } }
+    );
+    await message.reply("NSFW mode off kar diya is channel mein.");
+  }
+}
+
+async function handleReset(message: Message): Promise<void> {
+  const guildId = message.guild?.id ?? "dm";
+  await ChatHistory.findOneAndUpdate(
+    { userId: message.author.id, guildId },
+    { $set: { messages: [] } }
+  );
+  await message.reply("Done yaar! Teri chat history delete kar di. Fresh start! 🗑️");
+}
+
+async function handleTruth(message: Message): Promise<void> {
+  const guildId = message.guild?.id ?? "dm";
+  const status = await message.reply("Soch rahi hun... 🤔");
+  const personality = await getPersonality();
+  const reply = await getAiResponse([
+    { role: "system", content: personality.systemPrompt },
+    { role: "user", content: "Mujhe ek interesting truth question do" },
+  ], personality.activeProvider as "groq" | "gemini" | "nvidia");
+  await status.edit(reply.trim());
+}
+
+async function handleDare(message: Message): Promise<void> {
+  const guildId = message.guild?.id ?? "dm";
+  const status = await message.reply("Soch rahi hun... 😈");
+  const personality = await getPersonality();
+  const reply = await getAiResponse([
+    { role: "system", content: personality.systemPrompt },
+    { role: "user", content: "Mujhe ek fun dare do" },
+  ], personality.activeProvider as "groq" | "gemini" | "nvidia");
+  await status.edit(reply.trim());
+}
+
+async function handleSetWelcome(message: Message, args: string[]): Promise<void> {
+  if (!message.guild) {
+    await message.reply("Ye command sirf server mein use hoti hai!");
+    return;
+  }
+  const member = message.guild.members.cache.get(message.author.id);
+  const isOwner = message.author.id === process.env.OWNER_DISCORD_ID;
+  const hasManage = member?.permissions.has("MANAGE_GUILD") ?? false;
+  if (!isOwner && !hasManage) {
+    await message.reply("Yaar tujhe permission nahi hai ye karne ki! Manage Server chahiye.");
+    return;
+  }
+  const channelMention = message.mentions.channels.first();
+  const channelId = channelMention?.id ?? args[0]?.replace(/[<#>]/g, "");
+  if (!channelId) {
+    await message.reply("Usage: `!setwelcome #channel`");
+    return;
+  }
+  await ServerConfig.findOneAndUpdate(
+    { guildId: message.guild.id },
+    { $set: { welcomeChannelId: channelId, welcomeEnabled: true } },
+    { upsert: true }
+  );
+  await message.reply(`Done! Ab naye members ko <#${channelId}> mein welcome karungi. Welcome bhi on kar di! 🎉`);
+}
+
+async function handleWelcome(message: Message, args: string[]): Promise<void> {
+  if (!message.guild) {
+    await message.reply("Ye command sirf server mein use hoti hai!");
+    return;
+  }
+  const member = message.guild.members.cache.get(message.author.id);
+  const isOwner = message.author.id === process.env.OWNER_DISCORD_ID;
+  const hasManage = member?.permissions.has("MANAGE_GUILD") ?? false;
+  if (!isOwner && !hasManage) {
+    await message.reply("Yaar tujhe permission nahi hai ye karne ki! Manage Server chahiye.");
+    return;
+  }
+  const enable = ["on", "enable", "true", "1"].includes(args[0]?.toLowerCase() ?? "");
+  await ServerConfig.findOneAndUpdate(
+    { guildId: message.guild.id },
+    { $set: { welcomeEnabled: enable } },
+    { upsert: true }
+  );
+  await message.reply(enable ? "Welcome messages on kar diye! 🎉" : "Welcome messages off kar diye.");
+}
+
+async function handleSetPingChannel(message: Message, args: string[]): Promise<void> {
+  if (!message.guild) {
+    await message.reply("Ye command sirf server mein use hoti hai!");
+    return;
+  }
+  const member = message.guild.members.cache.get(message.author.id);
+  const isOwner = message.author.id === process.env.OWNER_DISCORD_ID;
+  const hasManage = member?.permissions.has("MANAGE_GUILD") ?? false;
+  if (!isOwner && !hasManage) {
+    await message.reply("Yaar tujhe permission nahi hai! Manage Server chahiye.");
+    return;
+  }
+  const channelMention = message.mentions.channels.first();
+  const channelId = channelMention?.id ?? args[0]?.replace(/[<#>]/g, "");
+  if (!channelId) {
+    await message.reply("Usage: `!setpingchannel #channel`");
+    return;
+  }
+  await ServerConfig.findOneAndUpdate(
+    { guildId: message.guild.id },
+    { $set: { pingChannelId: channelId } },
+    { upsert: true }
+  );
+  await message.reply(`Done! Ab main <#${channelId}> mein random members ko ping karungi.`);
+}
+
+async function handleResetServer(message: Message): Promise<void> {
+  if (!message.guild) {
+    await message.reply("Ye command sirf server mein use hoti hai!");
+    return;
+  }
+  const member = message.guild.members.cache.get(message.author.id);
+  const isOwner = message.author.id === process.env.OWNER_DISCORD_ID;
+  const isServerOwner = message.guild.ownerId === message.author.id;
+  const isAdmin = member?.permissions.has("ADMINISTRATOR") ?? false;
+  if (!isOwner && !isServerOwner && !isAdmin) {
+    await message.reply("Yaar sirf server owner ya admin ye kar sakte hain!");
+    return;
+  }
+  const guildId = message.guild.id;
+  const result = await ChatHistory.updateMany({ guildId }, { $set: { messages: [] } });
+  await message.reply(`Done! Is server ke ${result.modifiedCount} users ki chat history clear kar di. Fresh start! 🗑️`);
+}
+
+async function handleSay(message: Message, args: string[]): Promise<void> {
+  if (!message.guild) {
+    await message.reply("Ye command sirf server mein use hoti hai!");
+    return;
+  }
+  const member = message.guild.members.cache.get(message.author.id);
+  const isAdmin = member?.permissions.has("ADMINISTRATOR") ?? false;
+  const isOwner = message.author.id === process.env.OWNER_DISCORD_ID;
+  if (!isAdmin && !isOwner) {
+    await message.reply("Yaar sirf Administrators ye command use kar sakte hain!");
+    return;
+  }
+  // Check if last arg is a channel mention
+  let channelId: string | null = null;
+  const lastArg = args[args.length - 1];
+  const channelMatch = lastArg?.match(/^<#(\d+)>$/);
+  if (channelMatch) {
+    channelId = channelMatch[1];
+    args = args.slice(0, -1);
+  }
+  const content = args.join(" ").trim();
+  if (!content) {
+    await message.reply("Usage: `!say <message> [#channel]`");
+    return;
+  }
+  const hasMassPing = /@everyone|@here|<@&\d+>/.test(content);
+  if (hasMassPing && !isOwner) {
+    await message.reply("⚠️ Mass pings (@everyone, @here, role mentions) allowed nahi hain `!say` mein!");
+    return;
+  }
+  const targetChannel = channelId
+    ? message.guild.channels.cache.get(channelId)
+    : message.channel;
+  if (!targetChannel || !("send" in targetChannel)) {
+    await message.reply("Channel valid nahi hai!");
+    return;
+  }
+  await (targetChannel as TextChannel).send({ content, allowedMentions: isOwner ? undefined : { parse: ["users"] } });
+  await message.reply(`Done! Message send kar diya${channelId ? ` <#${channelId}>` : ""} mein.`);
+}
+
+async function handleSetProvider(message: Message, args: string[]): Promise<void> {
+  if (!(await isOwnerCheck(message))) return;
+  const provider = args[0]?.toLowerCase() as "groq" | "gemini" | "nvidia" | undefined;
+  if (!provider || !["groq", "gemini", "nvidia"].includes(provider)) {
+    await message.reply("Usage: `!setprovider <groq|gemini|nvidia>`");
+    return;
+  }
+  await Personality.findOneAndUpdate({}, { $set: { activeProvider: provider } }, { upsert: true });
+  await message.reply(`Done! Ab Priya **${provider.toUpperCase()}** use karegi.`);
+}
+
+async function handleAiToggle(message: Message, args: string[], enable: boolean): Promise<void> {
+  if (!message.guild) {
+    await message.reply("Ye command sirf server mein use hoti hai!");
+    return;
+  }
+  const member = message.guild.members.cache.get(message.author.id);
+  const isOwner = message.author.id === process.env.OWNER_DISCORD_ID;
+  const isAdmin = member?.permissions.has("ADMINISTRATOR") ?? false;
+  const isServerOwner = message.guild.ownerId === message.author.id;
+  if (!isOwner && !isAdmin && !isServerOwner) {
+    await message.reply("Yaar sirf admins ye kar sakte hain! 🔒");
+    return;
+  }
+  await ServerConfig.findOneAndUpdate(
+    { guildId: message.guild.id },
+    { $set: { aiEnabled: enable } },
+    { upsert: true }
+  );
+  await message.reply(
+    enable
+      ? "✅ Priya AI replies **on** kar di is server mein!"
+      : "🔇 Priya AI replies **off** kar di is server mein. Commands abhi bhi kaam karengi."
+  );
+}
+
+async function handleAiChannelToggle(message: Message, args: string[], disable: boolean): Promise<void> {
+  if (!message.guild) {
+    await message.reply("Ye command sirf server mein use hoti hai!");
+    return;
+  }
+  const member = message.guild.members.cache.get(message.author.id);
+  const isOwner = message.author.id === process.env.OWNER_DISCORD_ID;
+  const isAdmin = member?.permissions.has("ADMINISTRATOR") ?? false;
+  const isServerOwner = message.guild.ownerId === message.author.id;
+  if (!isOwner && !isAdmin && !isServerOwner) {
+    await message.reply("Yaar sirf admins ye kar sakte hain! 🔒");
+    return;
+  }
+  const channelMention = message.mentions.channels.first();
+  const channelId = channelMention?.id ?? args[0]?.replace(/[<#>]/g, "");
+  if (!channelId) {
+    await message.reply(`Usage: \`!${disable ? "aioffchannel" : "aionchannel"} #channel\``);
+    return;
+  }
+  if (disable) {
+    await ServerConfig.findOneAndUpdate(
+      { guildId: message.guild.id },
+      { $addToSet: { aiDisabledChannels: channelId } },
+      { upsert: true }
+    );
+    await message.reply(`🔇 Priya AI replies <#${channelId}> mein **off** kar di.`);
+  } else {
+    await ServerConfig.findOneAndUpdate(
+      { guildId: message.guild.id },
+      { $pull: { aiDisabledChannels: channelId } },
+      { upsert: true }
+    );
+    await message.reply(`✅ Priya AI replies <#${channelId}> mein **on** kar di!`);
+  }
+}
+
+async function handleSetupCounter(message: Message, client: Client): Promise<void> {
+  if (!message.guild) {
+    await message.reply("Ye command sirf server mein use hoti hai!");
+    return;
+  }
+  const member = message.guild.members.cache.get(message.author.id);
+  const isAdmin = member?.permissions.has("ADMINISTRATOR") ?? false;
+  const isOwner = message.author.id === process.env.OWNER_DISCORD_ID;
+  if (!isAdmin && !isOwner) {
+    await message.reply("Yaar sirf Administrators ye set kar sakte hain!");
+    return;
+  }
+  const guildId = message.guild.id;
+  const guild = message.guild;
+  const channel = message.channel as TextChannel;
+  const serverConf = await ServerConfig.findOne({ guildId });
+
+  const members = await guild.members.fetch().catch(() => guild.members.cache);
+  const memberCount = members.size;
+  const botCount = members.filter((m) => m.user.bot).size;
+  const memberMap = new Map(members.map((m) => [m.user.id, m]));
+
+  const topRaw = await BotUser.find({ servers: guildId, banned: { $ne: true } })
+    .sort({ messageCount: -1 })
+    .limit(10)
+    .lean()
+    .catch(() => []);
+
+  const topMembers: CounterMember[] = topRaw.map((u) => {
+    const m = memberMap.get(u.userId);
+    return {
+      userId: u.userId,
+      username: m?.displayName ?? m?.user.username ?? u.username,
+      avatarUrl: m?.user.avatarURL({ size: 64 }) ?? u.avatarUrl ?? undefined,
+      messageCount: u.messageCount ?? 0,
+    };
+  });
+
+  const buf = await generateCounterCard({
+    guildName: guild.name,
+    guildIconUrl: guild.iconURL({ size: 256 }) ?? undefined,
+    totalMessages: serverConf?.totalMessages ?? 0,
+    memberCount,
+    botCount,
+    updatedAt: new Date(),
+    topMembers,
+  });
+
+  const posted = await channel.send({ content: "", files: [{ attachment: buf, name: "counter.png" }] });
+  await ServerConfig.findOneAndUpdate(
+    { guildId },
+    { $set: { counterChannelId: channel.id, counterMessageId: posted.id } },
+    { upsert: true }
+  );
+  await message.reply(`✅ Live counter setup kar diya <#${channel.id}> mein! Ye image har 30 seconds mein update hogi. 📊`);
+}
+
+// ─── !help ────────────────────────────────────────────────────────────────────
+
+async function handleHelp(message: Message, prefix: string): Promise<void> {
+  const isOwner = message.author.id === process.env.OWNER_DISCORD_ID;
+  const siteUrl = process.env.SITE_URL?.replace(/\/$/, "");
+
+  const lines = [
+    `**🎮 Fun & Games**`,
+    `\`${prefix}roast @user\` — AI se roast karwao 🔥`,
+    `\`${prefix}hug @user\` — Hug karo 🤗`,
+    `\`${prefix}slap @user\` — Thappad maro 👋`,
+    `\`${prefix}ship @u1 @u2\` — Compatibility check 💘`,
+    `\`${prefix}8ball <sawaal>\` — Magic 8-ball 🎱`,
+    `\`${prefix}rate <kuch bhi>\` — Priya rate karegi ⭐`,
+    `\`${prefix}coinflip\` — Heads ya tails? 🪙`,
+    `\`${prefix}snipe [#]\` — Last deleted message 🔍`,
+    `\`${prefix}rank [@user]\` — Server rank 📊`,
+    `\`${prefix}lb\` — Leaderboard 🏆`,
+    `\`${prefix}image <prompt>\` — AI image generate karo 🎨`,
+    ``,
+    `**👨‍👩‍👧 Family System**`,
+    `\`${prefix}marry @user\` — Propose karo 💍`,
+    `\`${prefix}divorce\` — Alag ho jao 💔`,
+    `\`${prefix}adopt @user\` — Adopt karo 👶`,
+    `\`${prefix}unadopt @user\` — Unadopt karo 🚪`,
+    `\`${prefix}leave\` — Parents se bhaago 🏃`,
+    `\`${prefix}parents [@user]\` — Parents dekho 👨‍👩‍👧`,
+    `\`${prefix}family [@user]\` — Family tree 🌳`,
+    `\`${prefix}profile [@user]\` — Profile card ✨`,
+    `\`${prefix}marriagecard [@user]\` — Marriage card 💍`,
+    ``,
+    `**⚙️ Settings (Admin)**`,
+    `\`${prefix}nsfw on/off\` — NSFW mode toggle 🔞`,
+    `\`${prefix}reset\` — Chat history reset 🗑️`,
+    `\`${prefix}truth\` — Truth question 🤔`,
+    `\`${prefix}dare\` — Dare 😈`,
+    `\`${prefix}setprefix <prefix>\` — Prefix change ⚙️`,
+    `\`${prefix}setpingchannel #ch\` — Random ping channel 🎯`,
+    `\`${prefix}setwelcome #ch\` — Welcome channel 👋`,
+    `\`${prefix}welcome on/off\` — Welcome toggle`,
+    `\`${prefix}resetserver\` — Server history clear ⚠️`,
+    `\`${prefix}say <msg> [#ch]\` — Priya se bolwao 🗣️`,
+    `\`${prefix}aioff / aion\` — AI toggle 🤖`,
+    `\`${prefix}aioffchannel #ch\` — Channel AI off`,
+    `\`${prefix}aionchannel #ch\` — Channel AI on`,
+    `\`${prefix}setupcounter\` — Live counter 📊`,
+    `\`${prefix}resetcount\` — Message counts reset 🔄`,
+    ...(siteUrl ? [``, `🌐 [User Portal](${siteUrl}/dashboard/portal)`] : []),
+  ];
+
+  if (isOwner) {
+    lines.push(
+      ``,
+      `**🔒 Owner Only**`,
+      `\`${prefix}whitelist add/remove/list\` — Whitelist manage 👥`,
+      `\`${prefix}ping\` — Bot status 🏓`,
+      `\`${prefix}announce <msg>\` — Broadcast 📢`,
+      `\`${prefix}botban <userid>\` — Ban user 🔨`,
+      `\`${prefix}botunban <userid>\` — Unban user ✅`,
+      `\`${prefix}serverlist\` — Server list 📋`,
+      `\`${prefix}clearhistory <userid>\` — Clear history 🗑️`,
+      `\`${prefix}forceadopt @parent @child\` — Force adopt 👑`,
+      `\`${prefix}setprovider <groq|gemini|nvidia>\` — AI provider 🤖`,
+    );
+  }
+
+  // Split into chunks if too long
+  const fullText = lines.join("\n");
+  if (fullText.length <= 2000) {
+    await message.reply(fullText);
+  } else {
+    const chunks: string[] = [];
+    let current = "";
+    for (const line of lines) {
+      if ((current + line + "\n").length > 1900) {
+        chunks.push(current);
+        current = "";
+      }
+      current += line + "\n";
+    }
+    if (current) chunks.push(current);
+    for (const chunk of chunks) await message.reply(chunk).catch(() => {});
+  }
+}
+
+// ─── Main dispatcher ──────────────────────────────────────────────────────────
+
+type TextChannel = import("discord.js-selfbot-v13").TextChannel;
 
 export async function handlePrefixCommand(
   message: Message,
@@ -1468,13 +1634,72 @@ export async function handlePrefixCommand(
         await handleForceAdopt(message, client, args);
         break;
       case "botban":
+      case "ban":
         await handleBotBan(message, args);
         break;
       case "botunban":
+      case "unban":
         await handleBotUnban(message, args);
         break;
       case "clearhistory":
         await handleClearHistory(message, args);
+        break;
+      case "ping":
+        await handlePing(message, client);
+        break;
+      case "announce":
+        await handleAnnounce(message, client, args);
+        break;
+      case "serverlist":
+        await handleServerList(message, client);
+        break;
+      case "nsfw":
+        await handleNsfw(message, args);
+        break;
+      case "reset":
+        await handleReset(message);
+        break;
+      case "truth":
+        await handleTruth(message);
+        break;
+      case "dare":
+        await handleDare(message);
+        break;
+      case "setprefix":
+        await handleSetPrefix(message, args);
+        break;
+      case "setwelcome":
+        await handleSetWelcome(message, args);
+        break;
+      case "welcome":
+        await handleWelcome(message, args);
+        break;
+      case "setpingchannel":
+        await handleSetPingChannel(message, args);
+        break;
+      case "resetserver":
+        await handleResetServer(message);
+        break;
+      case "say":
+        await handleSay(message, args);
+        break;
+      case "setprovider":
+        await handleSetProvider(message, args);
+        break;
+      case "aioff":
+        await handleAiToggle(message, args, false);
+        break;
+      case "aion":
+        await handleAiToggle(message, args, true);
+        break;
+      case "aioffchannel":
+        await handleAiChannelToggle(message, args, true);
+        break;
+      case "aionchannel":
+        await handleAiChannelToggle(message, args, false);
+        break;
+      case "setupcounter":
+        await handleSetupCounter(message, client);
         break;
     }
   } catch (err) {

@@ -3,7 +3,7 @@ import { requireAuth } from "../lib/auth";
 import { ServerConfig } from "../lib/models";
 import { discordClient } from "../lib/bot";
 import { GetServerParams, GetNsfwChannelsParams } from "@workspace/api-zod";
-import { ChannelType } from "discord.js";
+import { ChannelType } from "discord.js-selfbot-v13";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();

@@ -1,0 +1,2 @@
+- [selfbot-v13 API quirks](selfbot-v13-quirks.md) — Events enum missing, messages.fetch() not always a Promise, content:"" rejected
+- [Bot reply access model](bot-reply-access.md) — AI replies open to all non-banned users; prefix commands gated by isWhitelisted()

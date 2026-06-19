@@ -92,18 +92,75 @@ async function isWhitelisted(userId: string): Promise<boolean> {
   return user?.whitelisted ?? false;
 }
 
+// ─── Mention resolver ─────────────────────────────────────────────────────────
+
+async function resolveMentions(message: Message): Promise<{ text: string; mentionedNames: string[] }> {
+  const botId = message.client.user?.id;
+  let text = message.content;
+  const mentionedNames: string[] = [];
+  const mentionRegex = /<@!?(\d+)>/g;
+  const matches = [...text.matchAll(mentionRegex)];
+
+  for (const match of matches) {
+    const uid = match[1];
+    if (uid === botId) {
+      text = text.replace(match[0], "");
+      continue;
+    }
+    let displayName = uid;
+    const member = message.guild?.members.cache.get(uid);
+    if (member) {
+      displayName = member.displayName ?? member.user.username;
+    } else {
+      const cached = message.client.users.cache.get(uid);
+      if (cached) {
+        displayName = cached.username;
+      } else {
+        try {
+          const fetched = await message.client.users.fetch(uid);
+          displayName = fetched.username;
+        } catch { /* keep uid */ }
+      }
+    }
+    mentionedNames.push(displayName);
+    text = text.replace(match[0], `@${displayName}`);
+  }
+
+  return { text: text.trim(), mentionedNames };
+}
+
 // ─── Core reply logic ─────────────────────────────────────────────────────────
+
+interface ReplyContext {
+  senderName: string;
+  guildName?: string;
+  channelName?: string;
+  mentionedNames?: string[];
+}
 
 async function generateReply(
   userId: string,
   guildId: string,
   userMessage: string,
-  isNsfw: boolean
+  isNsfw: boolean,
+  ctx?: ReplyContext
 ): Promise<string> {
   const personality = await getPersonality();
   const history = await getHistory(userId, guildId);
 
   let systemPrompt = personality.systemPrompt;
+
+  // Always inject live context so the AI knows who/where
+  const ctxLines: string[] = [];
+  if (ctx?.senderName) ctxLines.push(`Tum se baat kar raha/rahi hai: ${ctx.senderName}`);
+  if (ctx?.guildName) ctxLines.push(`Server: ${ctx.guildName}`);
+  if (ctx?.channelName) ctxLines.push(`Channel: #${ctx.channelName}`);
+  if (ctx?.mentionedNames?.length) {
+    ctxLines.push(`Message mein mention hue log: ${ctx.mentionedNames.join(", ")} — inhe name se refer kar, Discord ID se nahi`);
+  }
+  if (ctxLines.length) {
+    systemPrompt += `\n\n[Context: ${ctxLines.join(". ")}]`;
+  }
 
   const userProfile = await BotUser.findOne({ userId });
   if (userProfile) {
@@ -456,15 +513,23 @@ export async function initBot(): Promise<void> {
       if (aiOff) return;
     }
 
-    const userText = message.content
-      .replace(/<@!?\d+>/g, "")
-      .trim();
+    const { text: userText, mentionedNames } = await resolveMentions(message);
 
     if (!userText) return;
 
     if ("sendTyping" in message.channel) {
       await (message.channel as { sendTyping: () => Promise<void> }).sendTyping();
     }
+
+    // Build sender display name
+    const senderName = message.guild
+      ? (message.member?.displayName ?? message.author.username)
+      : message.author.username;
+
+    // Build channel name
+    const channelName = message.guild && "name" in message.channel
+      ? (message.channel as { name: string }).name
+      : undefined;
 
     try {
       await upsertUser(
@@ -483,7 +548,13 @@ export async function initBot(): Promise<void> {
         message.author.id,
         guildId,
         userText,
-        isNsfw
+        isNsfw,
+        {
+          senderName,
+          guildName: message.guild?.name,
+          channelName,
+          mentionedNames: mentionedNames.length ? mentionedNames : undefined,
+        }
       );
 
       await saveHistory(message.author.id, guildId, "assistant", reply);

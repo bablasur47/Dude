@@ -76,13 +76,20 @@ async function upsertUser(member: { id: string; username: string; discriminator?
 
 // ─── Access check ─────────────────────────────────────────────────────────────
 
-async function isAllowed(userId: string): Promise<{ allowed: boolean; banned: boolean }> {
+async function isAllowed(userId: string): Promise<{ allowed: boolean; banned: boolean; whitelisted: boolean }> {
   const ownerId = process.env.OWNER_DISCORD_ID;
-  if (userId === ownerId) return { allowed: true, banned: false };
+  if (userId === ownerId) return { allowed: true, banned: false, whitelisted: true };
   const user = await BotUser.findOne({ userId });
-  if (user?.banned) return { allowed: false, banned: true };
-  if (user?.whitelisted) return { allowed: true, banned: false };
-  return { allowed: false, banned: false };
+  if (user?.banned) return { allowed: false, banned: true, whitelisted: false };
+  // Everyone can get AI replies unless banned; whitelist flag gates commands
+  return { allowed: true, banned: false, whitelisted: user?.whitelisted ?? false };
+}
+
+async function isWhitelisted(userId: string): Promise<boolean> {
+  const ownerId = process.env.OWNER_DISCORD_ID;
+  if (userId === ownerId) return true;
+  const user = await BotUser.findOne({ userId });
+  return user?.whitelisted ?? false;
 }
 
 // ─── Core reply logic ─────────────────────────────────────────────────────────
@@ -322,12 +329,15 @@ export async function initBot(): Promise<void> {
     }
 
     const isMentioned = message.mentions.has(client.user!);
-    const isReply =
-      message.reference?.messageId &&
-      (await message.channel.messages
-        .fetch(message.reference.messageId)
-        .then((m) => m.author.id === client.user!.id)
-        .catch(() => false));
+    let isReply = false;
+    if (message.reference?.messageId) {
+      try {
+        const refMsg = await message.channel.messages.fetch(message.reference.messageId);
+        isReply = refMsg?.author?.id === client.user!.id;
+      } catch {
+        isReply = false;
+      }
+    }
 
     // ── Prefix commands ────────────────────────────────────────────────────────
     const serverPrefix = await getServerPrefix(isDm ? null : message.guild?.id ?? null);
@@ -348,8 +358,7 @@ export async function initBot(): Promise<void> {
       }
 
       // ── All other prefix commands — check whitelist first ─────────────────
-      const access = await isAllowed(message.author.id);
-      if (!access.allowed) return;
+      if (!await isWhitelisted(message.author.id)) return;
 
       if (command === "image" || command === "imagine") {
         const rawPrompt = args.join(" ").trim();
@@ -662,7 +671,12 @@ function startCounterUpdater(client: Client) {
         const channel = guild.channels.cache.get(conf.counterChannelId!) as TextChannel | undefined;
         if (!channel || !("messages" in channel)) continue;
 
-        const msg = await channel.messages.fetch(conf.counterMessageId!).catch(() => null);
+        let msg;
+        try {
+          msg = await channel.messages.fetch(conf.counterMessageId!);
+        } catch {
+          msg = null;
+        }
         if (!msg) {
           await ServerConfig.findOneAndUpdate(
             { guildId: conf.guildId },
@@ -671,7 +685,21 @@ function startCounterUpdater(client: Client) {
           continue;
         }
 
-        const members = await guild.members.fetch().catch(() => guild.members.cache);
+        // Selfbot can only edit its own messages
+        if (msg.author.id !== client.user?.id) {
+          await ServerConfig.findOneAndUpdate(
+            { guildId: conf.guildId },
+            { $set: { counterChannelId: null, counterMessageId: null } }
+          );
+          continue;
+        }
+
+        let members;
+        try {
+          members = await guild.members.fetch();
+        } catch {
+          members = guild.members.cache;
+        }
         const memberCount = members.size;
         const botCount = members.filter((m) => m.user.bot).size;
         const memberMap = new Map(members.map((m) => [m.user.id, m]));
@@ -688,7 +716,7 @@ function startCounterUpdater(client: Client) {
         });
 
         await msg.edit({
-          content: "",
+          content: "\u200b",
           files: [{ attachment: buf, name: "counter.png" }],
         });
       } catch (err) {

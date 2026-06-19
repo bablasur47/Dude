@@ -1,6 +1,5 @@
 import {
   Client,
-  Events,
   type Message,
   type GuildMember,
   type TextChannel,
@@ -172,20 +171,20 @@ export async function initBot(): Promise<void> {
 
   const client = new Client({ checkUpdate: false });
 
-  client.on(Events.Error, (err) => {
+  client.on("error", (err) => {
     logger.error({ err }, "Discord client error");
   });
 
-  client.on(Events.ShardDisconnect as unknown as string, () => {
+  client.on("shardDisconnect", () => {
     logger.warn("Discord client disconnected — clearing ready state");
     discordClient = null;
   });
 
-  client.on(Events.ShardReconnecting as unknown as string, () => {
+  client.on("shardReconnecting", () => {
     logger.info("Discord client reconnecting...");
   });
 
-  client.on(Events.ClientReady, async (c) => {
+  client.on("ready", async (c) => {
     discordClient = client;
     logger.info({ username: c.user.tag }, "Discord selfbot ready");
     botStartTime = Date.now();
@@ -214,7 +213,7 @@ export async function initBot(): Promise<void> {
 
   // ─── Guild Join ──────────────────────────────────────────────────────────────
 
-  client.on(Events.GuildCreate, async (guild) => {
+  client.on("guildCreate", async (guild) => {
     await ServerConfig.findOneAndUpdate(
       { guildId: guild.id },
       {
@@ -232,7 +231,7 @@ export async function initBot(): Promise<void> {
 
   // ─── New Member Greeting ─────────────────────────────────────────────────────
 
-  client.on(Events.GuildMemberAdd, async (member: GuildMember) => {
+  client.on("guildMemberAdd", async (member: GuildMember) => {
     const personality = await getPersonality();
     if (!personality.greetNewMembers) return;
 
@@ -271,7 +270,7 @@ export async function initBot(): Promise<void> {
 
   // ─── Message Delete (snipe) ──────────────────────────────────────────────────
 
-  client.on(Events.MessageDelete, (message) => {
+  client.on("messageDelete", (message) => {
     if (message.partial) return;
     if (!message.author) return;
     if (message.author.id === client.user?.id) return;
@@ -294,7 +293,7 @@ export async function initBot(): Promise<void> {
 
   // ─── Message handler ─────────────────────────────────────────────────────────
 
-  client.on(Events.MessageCreate, async (message: Message) => {
+  client.on("messageCreate", async (message: Message) => {
     // Skip own messages
     if (message.author.id === client.user?.id) return;
 

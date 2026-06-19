@@ -502,12 +502,10 @@ export async function initBot(): Promise<void> {
     const access = await isAllowed(message.author.id);
     if (!access.allowed) return;
 
-    // Check server/channel AI toggle + NSFW setting
-    let isNsfw = false;
+    // Check server/channel AI toggle — NSFW always on (uncensored mode)
+    const isNsfw = true;
     if (!isDm && message.channelId) {
       const serverConf = await ServerConfig.findOne({ guildId });
-      isNsfw = serverConf?.nsfwChannels.includes(message.channelId) ?? false;
-
       const aiOff = serverConf?.aiEnabled === false ||
         (serverConf?.aiDisabledChannels ?? []).includes(message.channelId);
       if (aiOff) return;

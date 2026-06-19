@@ -1461,84 +1461,107 @@ async function handleSetupCounter(message: Message, client: Client): Promise<voi
 
 async function handleHelp(message: Message, prefix: string): Promise<void> {
   const isOwner = message.author.id === process.env.OWNER_DISCORD_ID;
-  const siteUrl = process.env.SITE_URL?.replace(/\/$/, "");
 
-  const lines = [
-    `**🎮 Fun & Games**`,
-    `\`${prefix}roast @user\` — AI se roast karwao 🔥`,
-    `\`${prefix}hug @user\` — Hug karo 🤗`,
-    `\`${prefix}slap @user\` — Thappad maro 👋`,
-    `\`${prefix}ship @u1 @u2\` — Compatibility check 💘`,
-    `\`${prefix}8ball <sawaal>\` — Magic 8-ball 🎱`,
-    `\`${prefix}rate <kuch bhi>\` — Priya rate karegi ⭐`,
-    `\`${prefix}coinflip\` — Heads ya tails? 🪙`,
-    `\`${prefix}snipe [#]\` — Last deleted message 🔍`,
-    `\`${prefix}rank [@user]\` — Server rank 📊`,
-    `\`${prefix}lb\` — Leaderboard 🏆`,
-    `\`${prefix}image <prompt>\` — AI image generate karo 🎨`,
-    ``,
-    `**👨‍👩‍👧 Family System**`,
-    `\`${prefix}marry @user\` — Propose karo 💍`,
-    `\`${prefix}divorce\` — Alag ho jao 💔`,
-    `\`${prefix}adopt @user\` — Adopt karo 👶`,
-    `\`${prefix}unadopt @user\` — Unadopt karo 🚪`,
-    `\`${prefix}leave\` — Parents se bhaago 🏃`,
-    `\`${prefix}parents [@user]\` — Parents dekho 👨‍👩‍👧`,
-    `\`${prefix}family [@user]\` — Family tree 🌳`,
-    `\`${prefix}profile [@user]\` — Profile card ✨`,
-    `\`${prefix}marriagecard [@user]\` — Marriage card 💍`,
-    ``,
-    `**⚙️ Settings (Admin)**`,
-    `\`${prefix}nsfw on/off\` — NSFW mode toggle 🔞`,
-    `\`${prefix}reset\` — Chat history reset 🗑️`,
-    `\`${prefix}truth\` — Truth question 🤔`,
-    `\`${prefix}dare\` — Dare 😈`,
-    `\`${prefix}setprefix <prefix>\` — Prefix change ⚙️`,
-    `\`${prefix}setpingchannel #ch\` — Random ping channel 🎯`,
-    `\`${prefix}setwelcome #ch\` — Welcome channel 👋`,
-    `\`${prefix}welcome on/off\` — Welcome toggle`,
-    `\`${prefix}resetserver\` — Server history clear ⚠️`,
-    `\`${prefix}say <msg> [#ch]\` — Priya se bolwao 🗣️`,
-    `\`${prefix}aioff / aion\` — AI toggle 🤖`,
-    `\`${prefix}aioffchannel #ch\` — Channel AI off`,
-    `\`${prefix}aionchannel #ch\` — Channel AI on`,
-    `\`${prefix}setupcounter\` — Live counter 📊`,
-    `\`${prefix}resetcount\` — Message counts reset 🔄`,
-    ...(siteUrl ? [``, `🌐 [User Portal](${siteUrl}/dashboard/portal)`] : []),
+  const p = prefix;
+
+  const sections: string[][] = [
+    [
+      `╔══════════════════════════════╗`,
+      `       🌸  PRIYA BOT  🌸`,
+      `╚══════════════════════════════╝`,
+      `Prefix: \`${p}\`  |  @mention ya reply bhi karo!`,
+      ``,
+    ],
+    [
+      `━━━━━━ 🎮  FUN & GAMES  ━━━━━━`,
+      `\`${p}roast @user\`  →  AI roast`,
+      `\`${p}hug @user\`  →  Hug bhejo`,
+      `\`${p}slap @user\`  →  Thappad maro`,
+      `\`${p}ship [@u1] [@u2]\`  →  Love %`,
+      `\`${p}8ball <sawaal>\`  →  Magic 8-ball`,
+      `\`${p}rate <cheez>\`  →  Priya rate karegi`,
+      `\`${p}coinflip\`  →  Heads ya tails`,
+      `\`${p}truth\`  →  Truth question`,
+      `\`${p}dare\`  →  Dare`,
+      `\`${p}image <prompt>\`  →  AI image`,
+      ``,
+    ],
+    [
+      `━━━━━━ 📊  STATS & INFO  ━━━━━━`,
+      `\`${p}rank [@user]\`  →  Server rank card`,
+      `\`${p}lb\`  →  Message leaderboard`,
+      `\`${p}profile [@user]\`  →  Profile card`,
+      `\`${p}snipe [1-5]\`  →  Last deleted msg`,
+      `\`${p}ping\`  →  Bot latency`,
+      ``,
+    ],
+    [
+      `━━━━━━ 💍  FAMILY SYSTEM  ━━━━━━`,
+      `\`${p}marry @user\`  →  Propose`,
+      `\`${p}divorce\`  →  Alag ho jao`,
+      `\`${p}adopt @user\`  →  Adopt karo`,
+      `\`${p}unadopt @user\`  →  Unadopt`,
+      `\`${p}leave\`  →  Parents se bhaago`,
+      `\`${p}parents [@user]\`  →  Parents dekho`,
+      `\`${p}family [@user]\`  →  Family tree`,
+      `\`${p}marriagecard [@user]\`  →  Wedding card`,
+      ``,
+    ],
+    [
+      `━━━━━━ ⚙️  SERVER SETTINGS  ━━━━━━`,
+      `\`${p}reset\`  →  Teri chat history delete`,
+      `\`${p}nsfw on/off\`  →  NSFW channel toggle`,
+      `\`${p}setprefix <p>\`  →  Prefix change karo`,
+      `\`${p}setpingchannel #ch\`  →  Random ping channel`,
+      `\`${p}setwelcome #ch\`  →  Welcome channel set`,
+      `\`${p}welcome on/off\`  →  Welcome msgs toggle`,
+      `\`${p}aioff / aion\`  →  AI replies toggle (server)`,
+      `\`${p}aioffchannel #ch\`  →  AI off for channel`,
+      `\`${p}aionchannel #ch\`  →  AI on for channel`,
+      `\`${p}say <msg> [#ch]\`  →  Priya se bolwao`,
+      `\`${p}setupcounter\`  →  Live member counter`,
+      `\`${p}resetcount\`  →  Message counts reset`,
+      `\`${p}resetserver\`  →  Server data clear ⚠️`,
+    ],
   ];
 
   if (isOwner) {
-    lines.push(
+    sections.push([
       ``,
-      `**🔒 Owner Only**`,
-      `\`${prefix}whitelist add/remove/list\` — Whitelist manage 👥`,
-      `\`${prefix}ping\` — Bot status 🏓`,
-      `\`${prefix}announce <msg>\` — Broadcast 📢`,
-      `\`${prefix}botban <userid>\` — Ban user 🔨`,
-      `\`${prefix}botunban <userid>\` — Unban user ✅`,
-      `\`${prefix}serverlist\` — Server list 📋`,
-      `\`${prefix}clearhistory <userid>\` — Clear history 🗑️`,
-      `\`${prefix}forceadopt @parent @child\` — Force adopt 👑`,
-      `\`${prefix}setprovider <groq|gemini|nvidia>\` — AI provider 🤖`,
-    );
+      `━━━━━━ 🔒  OWNER ONLY  ━━━━━━`,
+      `\`${p}whitelist add @u\`  →  User ko access do`,
+      `\`${p}whitelist remove @u\`  →  Access hata do`,
+      `\`${p}whitelist list\`  →  Whitelist dekho`,
+      `\`${p}botban <id>\`  →  User ban`,
+      `\`${p}botunban <id>\`  →  User unban`,
+      `\`${p}announce <msg>\`  →  Sab servers pe broadcast`,
+      `\`${p}serverlist\`  →  All servers list`,
+      `\`${p}clearhistory <id>\`  →  Kisi ki history clear`,
+      `\`${p}forceadopt @parent @child\`  →  Force adopt`,
+      `\`${p}setprovider groq|gemini|nvidia\`  →  AI provider`,
+    ]);
   }
 
-  // Split into chunks if too long
-  const fullText = lines.join("\n");
-  if (fullText.length <= 2000) {
-    await message.reply(fullText);
-  } else {
-    const chunks: string[] = [];
-    let current = "";
-    for (const line of lines) {
-      if ((current + line + "\n").length > 1900) {
-        chunks.push(current);
-        current = "";
-      }
-      current += line + "\n";
+  sections.push([
+    ``,
+    `> 💬 Baat karne ke liye @mention karo ya reply karo!`,
+  ]);
+
+  // Send as one message, chunked if needed
+  const allLines = sections.flat();
+  const chunks: string[] = [];
+  let current = "";
+  for (const line of allLines) {
+    if ((current + line + "\n").length > 1900) {
+      chunks.push(current.trimEnd());
+      current = "";
     }
-    if (current) chunks.push(current);
-    for (const chunk of chunks) await message.reply(chunk).catch(() => {});
+    current += line + "\n";
+  }
+  if (current.trim()) chunks.push(current.trimEnd());
+
+  for (const chunk of chunks) {
+    await message.channel.send(chunk).catch(() => {});
   }
 }
 

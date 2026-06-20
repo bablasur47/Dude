@@ -550,8 +550,6 @@ export async function initBot(): Promise<void> {
 
     // ── Rate limiting — silently drop if too fast ──────────────────────────
     const now = Date.now();
-    const lastUser = userLastReply.get(message.author.id) ?? 0;
-    if (now - lastUser < USER_COOLDOWN_MS) return;
 
     const lastCh = channelLastSend.get(message.channelId) ?? 0;
     if (now - lastCh < CHANNEL_COOLDOWN_MS) return;

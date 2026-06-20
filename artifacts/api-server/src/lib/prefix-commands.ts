@@ -19,7 +19,7 @@ import {
   type CounterMember,
   type FamilyChildNode,
 } from "./cards";
-import { snipeStore } from "./bot";
+import { snipeStore, botStartTime } from "./bot";
 import { getAiResponse } from "./ai-router";
 import { getPersonality } from "./personality";
 
@@ -886,7 +886,7 @@ async function handleResetCount(message: Message): Promise<void> {
     return;
   }
 
-  const member = message.guild.members.cache.get(message.author.id);
+  const member = message.member;
   const isAdmin = member?.permissions.has("ADMINISTRATOR") ?? false;
   const isServerOwner = message.guild.ownerId === message.author.id;
   const isOwner = message.author.id === process.env.OWNER_DISCORD_ID;
@@ -1069,7 +1069,7 @@ async function handlePing(message: Message, client: Client): Promise<void> {
   if (!(await isOwnerCheck(message))) return;
   const latency = client.ws.ping;
   const servers = client.guilds.cache.size;
-  const uptime = Math.floor((Date.now() - (await import("./bot").then(b => b.botStartTime))) / 1000 / 60);
+  const uptime = Math.floor((Date.now() - botStartTime) / 1000 / 60);
   await message.reply(
     `**Priya Status**\n🏓 Latency: ${latency}ms\n🌐 Servers: ${servers}\n⏱️ Uptime: ${uptime} minutes`
   );
@@ -1113,7 +1113,7 @@ async function handleSetPrefix(message: Message, args: string[]): Promise<void> 
     await message.reply("Ye command sirf server mein use hoti hai!");
     return;
   }
-  const member = message.guild.members.cache.get(message.author.id);
+  const member = message.member;
   const isAdmin = member?.permissions.has("ADMINISTRATOR") ?? false;
   const isOwner = message.author.id === process.env.OWNER_DISCORD_ID;
   const hasManage = member?.permissions.has("MANAGE_GUILD") ?? false;
@@ -1140,7 +1140,7 @@ async function handleNsfw(message: Message, args: string[]): Promise<void> {
     await message.reply("Ye command sirf server mein use hoti hai!");
     return;
   }
-  const member = message.guild.members.cache.get(message.author.id);
+  const member = message.member;
   const isOwner = message.author.id === process.env.OWNER_DISCORD_ID;
   const hasManage = member?.permissions.has("MANAGE_CHANNELS") ?? false;
   if (!isOwner && !hasManage) {
@@ -1201,7 +1201,7 @@ async function handleSetWelcome(message: Message, args: string[]): Promise<void>
     await message.reply("Ye command sirf server mein use hoti hai!");
     return;
   }
-  const member = message.guild.members.cache.get(message.author.id);
+  const member = message.member;
   const isOwner = message.author.id === process.env.OWNER_DISCORD_ID;
   const hasManage = member?.permissions.has("MANAGE_GUILD") ?? false;
   if (!isOwner && !hasManage) {
@@ -1227,7 +1227,7 @@ async function handleWelcome(message: Message, args: string[]): Promise<void> {
     await message.reply("Ye command sirf server mein use hoti hai!");
     return;
   }
-  const member = message.guild.members.cache.get(message.author.id);
+  const member = message.member;
   const isOwner = message.author.id === process.env.OWNER_DISCORD_ID;
   const hasManage = member?.permissions.has("MANAGE_GUILD") ?? false;
   if (!isOwner && !hasManage) {
@@ -1248,7 +1248,7 @@ async function handleSetPingChannel(message: Message, args: string[]): Promise<v
     await message.reply("Ye command sirf server mein use hoti hai!");
     return;
   }
-  const member = message.guild.members.cache.get(message.author.id);
+  const member = message.member;
   const isOwner = message.author.id === process.env.OWNER_DISCORD_ID;
   const hasManage = member?.permissions.has("MANAGE_GUILD") ?? false;
   if (!isOwner && !hasManage) {
@@ -1274,7 +1274,7 @@ async function handleResetServer(message: Message): Promise<void> {
     await message.reply("Ye command sirf server mein use hoti hai!");
     return;
   }
-  const member = message.guild.members.cache.get(message.author.id);
+  const member = message.member;
   const isOwner = message.author.id === process.env.OWNER_DISCORD_ID;
   const isServerOwner = message.guild.ownerId === message.author.id;
   const isAdmin = member?.permissions.has("ADMINISTRATOR") ?? false;
@@ -1292,7 +1292,7 @@ async function handleSay(message: Message, args: string[]): Promise<void> {
     await message.reply("Ye command sirf server mein use hoti hai!");
     return;
   }
-  const member = message.guild.members.cache.get(message.author.id);
+  const member = message.member;
   const isAdmin = member?.permissions.has("ADMINISTRATOR") ?? false;
   const isOwner = message.author.id === process.env.OWNER_DISCORD_ID;
   if (!isAdmin && !isOwner) {
@@ -1344,7 +1344,7 @@ async function handleAiToggle(message: Message, args: string[], enable: boolean)
     await message.reply("Ye command sirf server mein use hoti hai!");
     return;
   }
-  const member = message.guild.members.cache.get(message.author.id);
+  const member = message.member;
   const isOwner = message.author.id === process.env.OWNER_DISCORD_ID;
   const isAdmin = member?.permissions.has("ADMINISTRATOR") ?? false;
   const isServerOwner = message.guild.ownerId === message.author.id;
@@ -1369,7 +1369,7 @@ async function handleAiChannelToggle(message: Message, args: string[], disable: 
     await message.reply("Ye command sirf server mein use hoti hai!");
     return;
   }
-  const member = message.guild.members.cache.get(message.author.id);
+  const member = message.member;
   const isOwner = message.author.id === process.env.OWNER_DISCORD_ID;
   const isAdmin = member?.permissions.has("ADMINISTRATOR") ?? false;
   const isServerOwner = message.guild.ownerId === message.author.id;
@@ -1405,7 +1405,7 @@ async function handleSetupCounter(message: Message, client: Client): Promise<voi
     await message.reply("Ye command sirf server mein use hoti hai!");
     return;
   }
-  const member = message.guild.members.cache.get(message.author.id);
+  const member = message.member;
   const isAdmin = member?.permissions.has("ADMINISTRATOR") ?? false;
   const isOwner = message.author.id === process.env.OWNER_DISCORD_ID;
   if (!isAdmin && !isOwner) {
@@ -1457,108 +1457,231 @@ async function handleSetupCounter(message: Message, client: Client): Promise<voi
   await message.reply(`✅ Live counter setup kar diya <#${channel.id}> mein! Ye image har 30 seconds mein update hogi. 📊`);
 }
 
+// ─── !image / !imagine ────────────────────────────────────────────────────────
+
+async function handleImage(message: Message, args: string[], prefix: string): Promise<void> {
+  const rawPrompt = args.join(" ").trim();
+  if (!rawPrompt) {
+    await message.reply(`Kya banana hai? Kuch prompt do! Example: \`${prefix}image cute cat on a mountain\``);
+    return;
+  }
+  let statusMsg: Message | null = null;
+  try {
+    statusMsg = await message.reply("Soch rahi hun... image bana rahi hun! Thodi wait karo 🎨");
+    const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(rawPrompt)}?width=1024&height=1024&model=flux&nologo=true&enhance=true`;
+    const imgRes = await fetch(url);
+    if (!imgRes.ok) throw new Error(`Pollinations returned ${imgRes.status}`);
+    const buffer = Buffer.from(await imgRes.arrayBuffer());
+    await statusMsg.delete().catch(() => {});
+    await message.reply({
+      content: `**Yeh lo!** \`${rawPrompt}\``,
+      files: [{ attachment: buffer, name: "priya-art.png" }],
+    });
+  } catch (err) {
+    logger.error({ err }, "Image generation failed");
+    if (statusMsg) {
+      await statusMsg.edit("Yaar kuch gadbad ho gayi image generate karte waqt. Thodi der baad try karo!").catch(() => {});
+    }
+  }
+}
+
+// ─── !whitelist ───────────────────────────────────────────────────────────────
+
+export async function handleWhitelist(message: Message, args: string[]): Promise<void> {
+  const sub = args[0]?.toLowerCase();
+
+  if (sub === "add") {
+    const targetId = args[1]?.replace(/[<@!>]/g, "").trim();
+    if (!targetId || !/^\d+$/.test(targetId)) {
+      await message.reply("Usage: `!whitelist add <userid>` — valid Discord user ID do!");
+      return;
+    }
+    await BotUser.findOneAndUpdate(
+      { userId: targetId },
+      { $set: { whitelisted: true } },
+      { upsert: true }
+    );
+    await message.reply(`✅ User \`${targetId}\` ko whitelist kar diya! Ab ye Priya se baat kar sakta hai.`);
+    return;
+  }
+
+  if (sub === "remove" || sub === "rem") {
+    const targetId = args[1]?.replace(/[<@!>]/g, "").trim();
+    if (!targetId || !/^\d+$/.test(targetId)) {
+      await message.reply("Usage: `!whitelist remove <userid>` — valid Discord user ID do!");
+      return;
+    }
+    await BotUser.findOneAndUpdate(
+      { userId: targetId },
+      { $set: { whitelisted: false } }
+    );
+    await message.reply(`✅ User \`${targetId}\` ko whitelist se hata diya.`);
+    return;
+  }
+
+  if (sub === "list") {
+    const users = await BotUser.find({ whitelisted: true }).lean();
+    if (users.length === 0) {
+      await message.reply("Abhi koi whitelist mein nahi hai. `!whitelist add <userid>` se add karo!");
+      return;
+    }
+    const lines = users.map((u, i) => `${i + 1}. **${u.username}** (\`${u.userId}\`)`);
+    const chunks: string[] = [];
+    let current = `**Whitelisted Users (${users.length}):**\n`;
+    for (const line of lines) {
+      if ((current + line + "\n").length > 1900) {
+        chunks.push(current);
+        current = "";
+      }
+      current += line + "\n";
+    }
+    if (current) chunks.push(current);
+    for (const chunk of chunks) {
+      await message.reply(chunk).catch(() => {});
+    }
+    return;
+  }
+
+  await message.reply(
+    "**Whitelist Commands:**\n" +
+    "`!whitelist add <userid>` — kisi ko whitelist karo\n" +
+    "`!whitelist remove <userid>` — whitelist se hatao\n" +
+    "`!whitelist list` — saare whitelisted users dekho"
+  );
+}
+
 // ─── !help ────────────────────────────────────────────────────────────────────
 
-async function handleHelp(message: Message, prefix: string): Promise<void> {
+async function handleHelp(message: Message, prefix: string, args: string[]): Promise<void> {
   const isOwner = message.author.id === process.env.OWNER_DISCORD_ID;
-
   const p = prefix;
+  const category = args[0]?.toLowerCase();
 
-  const sections: string[][] = [
-    [
-      `╔══════════════════════════════╗`,
-      `       🌸  PRIYA BOT  🌸`,
-      `╚══════════════════════════════╝`,
-      `Prefix: \`${p}\`  |  @mention ya reply bhi karo!`,
-      ``,
-    ],
-    [
-      `━━━━━━ 🎮  FUN & GAMES  ━━━━━━`,
-      `\`${p}roast @user\`  →  AI roast`,
-      `\`${p}hug @user\`  →  Hug bhejo`,
-      `\`${p}slap @user\`  →  Thappad maro`,
-      `\`${p}ship [@u1] [@u2]\`  →  Love %`,
-      `\`${p}8ball <sawaal>\`  →  Magic 8-ball`,
-      `\`${p}rate <cheez>\`  →  Priya rate karegi`,
-      `\`${p}coinflip\`  →  Heads ya tails`,
-      `\`${p}truth\`  →  Truth question`,
-      `\`${p}dare\`  →  Dare`,
-      `\`${p}image <prompt>\`  →  AI image`,
-      ``,
-    ],
-    [
-      `━━━━━━ 📊  STATS & INFO  ━━━━━━`,
-      `\`${p}rank [@user]\`  →  Server rank card`,
-      `\`${p}lb\`  →  Message leaderboard`,
-      `\`${p}profile [@user]\`  →  Profile card`,
-      `\`${p}snipe [1-5]\`  →  Last deleted msg`,
-      `\`${p}ping\`  →  Bot latency`,
-      ``,
-    ],
-    [
-      `━━━━━━ 💍  FAMILY SYSTEM  ━━━━━━`,
-      `\`${p}marry @user\`  →  Propose`,
-      `\`${p}divorce\`  →  Alag ho jao`,
-      `\`${p}adopt @user\`  →  Adopt karo`,
-      `\`${p}unadopt @user\`  →  Unadopt`,
-      `\`${p}leave\`  →  Parents se bhaago`,
-      `\`${p}parents [@user]\`  →  Parents dekho`,
-      `\`${p}family [@user]\`  →  Family tree`,
-      `\`${p}marriagecard [@user]\`  →  Wedding card`,
-      ``,
-    ],
-    [
-      `━━━━━━ ⚙️  SERVER SETTINGS  ━━━━━━`,
-      `\`${p}reset\`  →  Teri chat history delete`,
-      `\`${p}nsfw on/off\`  →  NSFW channel toggle`,
-      `\`${p}setprefix <p>\`  →  Prefix change karo`,
-      `\`${p}setpingchannel #ch\`  →  Random ping channel`,
-      `\`${p}setwelcome #ch\`  →  Welcome channel set`,
-      `\`${p}welcome on/off\`  →  Welcome msgs toggle`,
-      `\`${p}aioff / aion\`  →  AI replies toggle (server)`,
-      `\`${p}aioffchannel #ch\`  →  AI off for channel`,
-      `\`${p}aionchannel #ch\`  →  AI on for channel`,
-      `\`${p}say <msg> [#ch]\`  →  Priya se bolwao`,
-      `\`${p}setupcounter\`  →  Live member counter`,
-      `\`${p}resetcount\`  →  Message counts reset`,
-      `\`${p}resetserver\`  →  Server data clear ⚠️`,
-    ],
+  const FUN_LINES = [
+    `┌─────────────────────────────────────┐`,
+    `│         🎮  FUN & GAMES             │`,
+    `└─────────────────────────────────────┘`,
+    `${p}roast @user     →  AI se roast karwao`,
+    `${p}hug @user       →  Hug bhejo`,
+    `${p}slap @user      →  Thappad maro`,
+    `${p}ship [@u1 @u2]  →  Love % calculate`,
+    `${p}8ball <sawaal>  →  Magic 8-ball jawab`,
+    `${p}rate <cheez>    →  Priya ki rating`,
+    `${p}coinflip        →  Heads ya tails`,
+    `${p}truth           →  Ek truth question`,
+    `${p}dare            →  Ek dare`,
+    `${p}image <prompt>  →  AI se image banao`,
   ];
 
-  if (isOwner) {
-    sections.push([
-      ``,
-      `━━━━━━ 🔒  OWNER ONLY  ━━━━━━`,
-      `\`${p}whitelist add @u\`  →  User ko access do`,
-      `\`${p}whitelist remove @u\`  →  Access hata do`,
-      `\`${p}whitelist list\`  →  Whitelist dekho`,
-      `\`${p}botban <id>\`  →  User ban`,
-      `\`${p}botunban <id>\`  →  User unban`,
-      `\`${p}announce <msg>\`  →  Sab servers pe broadcast`,
-      `\`${p}serverlist\`  →  All servers list`,
-      `\`${p}clearhistory <id>\`  →  Kisi ki history clear`,
-      `\`${p}forceadopt @parent @child\`  →  Force adopt`,
-      `\`${p}setprovider groq|gemini|nvidia\`  →  AI provider`,
-    ]);
-  }
+  const SOCIAL_LINES = [
+    `┌─────────────────────────────────────┐`,
+    `│         💍  FAMILY SYSTEM           │`,
+    `└─────────────────────────────────────┘`,
+    `${p}marry @user         →  Propose karo`,
+    `${p}divorce             →  Rishta todo`,
+    `${p}adopt @user         →  Kisi ko adopt karo`,
+    `${p}unadopt @user       →  Unadopt karo`,
+    `${p}leave               →  Parents se bhaago`,
+    `${p}parents [@user]     →  Parents dekho`,
+    `${p}family [@user]      →  Family tree banao`,
+    `${p}marriagecard [@u]   →  Wedding card`,
+    `${p}profile [@user]     →  Profile card`,
+    `${p}rank [@user]        →  Server rank`,
+    `${p}lb                  →  Message leaderboard`,
+    `${p}snipe [1-5]         →  Last deleted msg`,
+  ];
 
-  sections.push([
+  const ADMIN_LINES = [
+    `┌─────────────────────────────────────┐`,
+    `│         ⚙️  SERVER SETTINGS         │`,
+    `└─────────────────────────────────────┘`,
+    `${p}reset               →  Teri chat history delete`,
+    `${p}nsfw on/off         →  NSFW channel toggle`,
+    `${p}setprefix <p>       →  Prefix change karo`,
+    `${p}setpingchannel #ch  →  Random ping channel`,
+    `${p}setwelcome #ch      →  Welcome channel set`,
+    `${p}welcome on/off      →  Welcome msgs toggle`,
+    `${p}aioff / aion        →  AI replies server toggle`,
+    `${p}aioffchannel #ch    →  AI off ek channel mein`,
+    `${p}aionchannel #ch     →  AI on ek channel mein`,
+    `${p}say <msg> [#ch]     →  Priya se bolwao`,
+    `${p}setupcounter        →  Live member counter`,
+    `${p}resetcount          →  Message counts reset`,
+    `${p}resetserver         →  Server data clear ⚠️`,
+  ];
+
+  const AI_LINES = [
+    `┌─────────────────────────────────────┐`,
+    `│         🤖  AI COMMANDS             │`,
+    `└─────────────────────────────────────┘`,
+    `${p}image <prompt>  →  AI se image banao (Flux)`,
+    `${p}roast @user     →  AI-generated savage roast`,
+    `${p}rate <cheez>    →  AI se kuch bhi rate karwao`,
+    `${p}truth           →  AI truth question`,
+    `${p}dare            →  AI dare`,
     ``,
-    `> 💬 Baat karne ke liye @mention karo ya reply karo!`,
-  ]);
+    `💬 @mention ya reply karo — Priya se seedha baat karo!`,
+  ];
 
-  // Send as one message, chunked if needed
-  const allLines = sections.flat();
-  const chunks: string[] = [];
-  let current = "";
-  for (const line of allLines) {
-    if ((current + line + "\n").length > 1900) {
-      chunks.push(current.trimEnd());
-      current = "";
+  // Category-specific help
+  const catMap: Record<string, string[]> = { fun: FUN_LINES, social: SOCIAL_LINES, admin: ADMIN_LINES, ai: AI_LINES };
+  if (category) {
+    const lines = catMap[category];
+    if (lines) {
+      await message.channel.send(`\`\`\`\n${lines.join("\n")}\n\`\`\``).catch(() => {});
+      return;
     }
-    current += line + "\n";
+    await message.reply(`"${category}" category nahi jaanti! Try: \`${p}help fun\`, \`${p}help social\`, \`${p}help admin\`, \`${p}help ai\``);
+    return;
   }
-  if (current.trim()) chunks.push(current.trimEnd());
+
+  // Full help — box-drawing sections
+  const OWNER_LINES = isOwner ? [
+    `┌─────────────────────────────────────┐`,
+    `│         🔒  OWNER ONLY              │`,
+    `└─────────────────────────────────────┘`,
+    `${p}whitelist add <id>    →  User ko access do`,
+    `${p}whitelist remove <id> →  Access hata do`,
+    `${p}whitelist list        →  Whitelist dekho`,
+    `${p}botban <id>           →  User ban`,
+    `${p}botunban <id>         →  User unban`,
+    `${p}announce <msg>        →  Sab servers pe broadcast`,
+    `${p}serverlist            →  All servers list`,
+    `${p}clearhistory <id>     →  Kisi ki history clear`,
+    `${p}forceadopt @p @c      →  Force adopt`,
+    `${p}setprovider groq|…    →  AI provider change`,
+    `${p}ping                  →  Bot status`,
+  ] : [];
+
+  const allLines = [
+    `╔═════════════════════════════════════╗`,
+    `║          🌸  PRIYA BOT  🌸          ║`,
+    `╚═════════════════════════════════════╝`,
+    `Prefix: \`${p}\`  |  @mention ya reply bhi chalega!`,
+    `Category help: \`${p}help fun\` / \`social\` / \`admin\` / \`ai\``,
+    ``,
+    ...FUN_LINES,
+    ``,
+    ...SOCIAL_LINES,
+    ``,
+    ...ADMIN_LINES,
+    ...(OWNER_LINES.length ? [``, ...OWNER_LINES] : []),
+    ``,
+    `💬 Baat karne ke liye @mention karo ya reply karo!`,
+  ];
+
+  const chunks: string[] = [];
+  let current = "```\n";
+  for (const line of allLines) {
+    const next = line + "\n";
+    if ((current + next + "```").length > 1990) {
+      chunks.push(current + "```");
+      current = "```\n" + next;
+    } else {
+      current += next;
+    }
+  }
+  if (current.trim() !== "```") chunks.push(current + "```");
 
   for (const chunk of chunks) {
     await message.channel.send(chunk).catch(() => {});
@@ -1580,7 +1703,7 @@ export async function handlePrefixCommand(
     switch (command.toLowerCase()) {
       case "help":
       case "commands":
-        await handleHelp(message, prefix);
+        await handleHelp(message, prefix, args);
         break;
       case "profile":
       case "p":
@@ -1723,6 +1846,13 @@ export async function handlePrefixCommand(
         break;
       case "setupcounter":
         await handleSetupCounter(message, client);
+        break;
+      case "image":
+      case "imagine":
+        await handleImage(message, args, prefix);
+        break;
+      case "whitelist":
+        await handleWhitelist(message, args);
         break;
     }
   } catch (err) {

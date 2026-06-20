@@ -9,7 +9,7 @@ import { logger } from "./logger";
 import { ChatHistory, BotUser, ServerConfig, Personality } from "./models";
 import { getAiResponse } from "./ai-router";
 import { getPersonality } from "./personality";
-import { handlePrefixCommand, getServerPrefix } from "./prefix-commands";
+import { handlePrefixCommand, getServerPrefix, handleWhitelist } from "./prefix-commands";
 import { generateCounterCard } from "./cards";
 import type { CounterMember } from "./cards";
 
@@ -452,39 +452,12 @@ export async function initBot(): Promise<void> {
           await message.reply("Yaar ye command sirf bot owner ke liye hai! 😤");
           return;
         }
-        await handleWhitelistCommand(message, args);
+        await handleWhitelist(message, args);
         return;
       }
 
       // ── All other prefix commands — check whitelist first ─────────────────
       if (!await isWhitelisted(message.author.id)) return;
-
-      if (command === "image" || command === "imagine") {
-        const rawPrompt = args.join(" ").trim();
-        if (!rawPrompt) {
-          await message.reply(`Kya banana hai? Kuch prompt do! Example: \`${serverPrefix}image cute cat on a mountain\``);
-          return;
-        }
-        let statusMsg: Message | null = null;
-        try {
-          statusMsg = await message.reply("Soch rahi hun... image bana rahi hun! Thodi wait karo 🎨");
-          const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(rawPrompt)}?width=1024&height=1024&model=flux&nologo=true&enhance=true`;
-          const imgRes = await fetch(url);
-          if (!imgRes.ok) throw new Error(`Pollinations returned ${imgRes.status}`);
-          const buffer = Buffer.from(await imgRes.arrayBuffer());
-          await statusMsg.delete().catch(() => {});
-          await message.reply({
-            content: `**Yeh lo!** \`${rawPrompt}\``,
-            files: [{ attachment: buffer, name: "priya-art.png" }],
-          });
-        } catch (err) {
-          logger.error({ err }, "Image generation failed");
-          if (statusMsg) {
-            await statusMsg.edit("Yaar kuch gadbad ho gayi image generate karte waqt. Thodi der baad try karo!").catch(() => {});
-          }
-        }
-        return;
-      }
 
       const prefixCommandNames = [
         "help", "commands",
@@ -531,6 +504,8 @@ export async function initBot(): Promise<void> {
         "aion",
         "aioffchannel",
         "aionchannel",
+        "image", "imagine",
+        "whitelist",
       ];
       if (prefixCommandNames.includes(command)) {
         await handlePrefixCommand(message, client, command, args);
@@ -649,71 +624,6 @@ export async function initBot(): Promise<void> {
   });
 
   await client.login(token);
-}
-
-// ─── Whitelist management ─────────────────────────────────────────────────────
-
-async function handleWhitelistCommand(message: Message, args: string[]): Promise<void> {
-  const sub = args[0]?.toLowerCase();
-
-  if (sub === "add") {
-    const targetId = args[1]?.replace(/[<@!>]/g, "").trim();
-    if (!targetId || !/^\d+$/.test(targetId)) {
-      await message.reply("Usage: `!whitelist add <userid>` — valid Discord user ID do!");
-      return;
-    }
-    await BotUser.findOneAndUpdate(
-      { userId: targetId },
-      { $set: { whitelisted: true } },
-      { upsert: true }
-    );
-    await message.reply(`✅ User \`${targetId}\` ko whitelist kar diya! Ab ye Priya se baat kar sakta hai.`);
-    return;
-  }
-
-  if (sub === "remove" || sub === "rem") {
-    const targetId = args[1]?.replace(/[<@!>]/g, "").trim();
-    if (!targetId || !/^\d+$/.test(targetId)) {
-      await message.reply("Usage: `!whitelist remove <userid>` — valid Discord user ID do!");
-      return;
-    }
-    await BotUser.findOneAndUpdate(
-      { userId: targetId },
-      { $set: { whitelisted: false } }
-    );
-    await message.reply(`✅ User \`${targetId}\` ko whitelist se hata diya.`);
-    return;
-  }
-
-  if (sub === "list") {
-    const users = await BotUser.find({ whitelisted: true }).lean();
-    if (users.length === 0) {
-      await message.reply("Abhi koi whitelist mein nahi hai. `!whitelist add <userid>` se add karo!");
-      return;
-    }
-    const lines = users.map((u, i) => `${i + 1}. **${u.username}** (\`${u.userId}\`)`);
-    const chunks: string[] = [];
-    let current = `**Whitelisted Users (${users.length}):**\n`;
-    for (const line of lines) {
-      if ((current + line + "\n").length > 1900) {
-        chunks.push(current);
-        current = "";
-      }
-      current += line + "\n";
-    }
-    if (current) chunks.push(current);
-    for (const chunk of chunks) {
-      await message.reply(chunk).catch(() => {});
-    }
-    return;
-  }
-
-  await message.reply(
-    "**Whitelist Commands:**\n" +
-    "`!whitelist add <userid>` — kisi ko whitelist karo\n" +
-    "`!whitelist remove <userid>` — whitelist se hatao\n" +
-    "`!whitelist list` — saare whitelisted users dekho"
-  );
 }
 
 // ─── Top members helper ───────────────────────────────────────────────────────

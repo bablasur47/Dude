@@ -30,6 +30,48 @@ export const snipeStore = new Map<string, DeletedMessage[]>();
 
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
+// ─── Anti-suspension rate limiting ───────────────────────────────────────────
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+// Skip messages older than this (bot was slow / lagging)
+const MAX_MESSAGE_AGE_MS = 45_000;
+
+// Per-user cooldown — don't reply to same user within N ms
+const USER_COOLDOWN_MS = 12_000;
+const userLastReply = new Map<string, number>();
+
+// Per-channel cooldown — don't send two messages in same channel within N ms
+const CHANNEL_COOLDOWN_MS = 5_000;
+const channelLastSend = new Map<string, number>();
+
+// Global rate limit — max AI replies per 60 s window
+const GLOBAL_RATE_LIMIT = 8;
+const globalSendTs: number[] = [];
+
+function checkGlobalRateLimit(): boolean {
+  const now = Date.now();
+  while (globalSendTs.length && globalSendTs[0] < now - 60_000) globalSendTs.shift();
+  return globalSendTs.length < GLOBAL_RATE_LIMIT;
+}
+
+function recordGlobalSend() {
+  globalSendTs.push(Date.now());
+}
+
+// Random int in [min, max]
+function randInt(min: number, max: number) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+// Human-like typing delay: 30–65 ms per character, capped at 9 s
+function humanTypingDelay(text: string): number {
+  const perChar = 30 + Math.random() * 35;
+  const base = Math.min(text.length * perChar, 9_000);
+  const jitter = (Math.random() - 0.5) * 800;
+  return Math.max(1_200, base + jitter);
+}
+
 // ─── History helpers ──────────────────────────────────────────────────────────
 
 async function getHistory(userId: string, guildId: string) {
@@ -498,11 +540,28 @@ export async function initBot(): Promise<void> {
 
     if (!isDm && !isMentioned && !isReply) return;
 
+    // ── Skip stale messages (bot was lagging / just restarted) ────────────────
+    const msgAge = Date.now() - message.createdTimestamp;
+    if (msgAge > MAX_MESSAGE_AGE_MS) return;
+
     // ── Access check for AI replies ────────────────────────────────────────
     const access = await isAllowed(message.author.id);
     if (!access.allowed) return;
 
-    // Check server/channel AI toggle — NSFW always on (uncensored mode)
+    // ── Rate limiting — silently drop if too fast ──────────────────────────
+    const now = Date.now();
+    const lastUser = userLastReply.get(message.author.id) ?? 0;
+    if (now - lastUser < USER_COOLDOWN_MS) return;
+
+    const lastCh = channelLastSend.get(message.channelId) ?? 0;
+    if (now - lastCh < CHANNEL_COOLDOWN_MS) return;
+
+    if (!checkGlobalRateLimit()) {
+      logger.warn("Global AI rate limit reached — skipping reply");
+      return;
+    }
+
+    // ── Check server/channel AI toggle — NSFW always on (uncensored) ──────
     const isNsfw = true;
     if (!isDm && message.channelId) {
       const serverConf = await ServerConfig.findOne({ guildId });
@@ -512,8 +571,10 @@ export async function initBot(): Promise<void> {
     }
 
     const { text: userText, mentionedNames } = await resolveMentions(message);
-
     if (!userText) return;
+
+    // ── Human-like pre-typing pause (1.5 – 4 s) ───────────────────────────
+    await sleep(randInt(1_500, 4_000));
 
     if ("sendTyping" in message.channel) {
       await (message.channel as { sendTyping: () => Promise<void> }).sendTyping();
@@ -542,6 +603,7 @@ export async function initBot(): Promise<void> {
 
       await saveHistory(message.author.id, guildId, "user", userText);
 
+      const replyStart = Date.now();
       const reply = await generateReply(
         message.author.id,
         guildId,
@@ -554,6 +616,24 @@ export async function initBot(): Promise<void> {
           mentionedNames: mentionedNames.length ? mentionedNames : undefined,
         }
       );
+
+      // ── Wait remaining typing time so total delay looks human ─────────────
+      const typingNeeded = humanTypingDelay(reply);
+      const alreadyElapsed = Date.now() - replyStart;
+      const remaining = typingNeeded - alreadyElapsed;
+      if (remaining > 300) {
+        // Re-trigger typing indicator every 8 s if we need to wait longer
+        if (remaining > 8_000 && "sendTyping" in message.channel) {
+          await (message.channel as { sendTyping: () => Promise<void> }).sendTyping();
+        }
+        await sleep(Math.min(remaining, 12_000));
+      }
+
+      // ── Record cooldowns before sending ──────────────────────────────────
+      const sendTs = Date.now();
+      userLastReply.set(message.author.id, sendTs);
+      channelLastSend.set(message.channelId, sendTs);
+      recordGlobalSend();
 
       await saveHistory(message.author.id, guildId, "assistant", reply);
 
@@ -712,6 +792,9 @@ function startRandomPingScheduler(client: Client) {
         ];
 
         const prompt = prompts[Math.floor(Math.random() * prompts.length)];
+
+        // Small delay between guilds to avoid burst sending
+        await sleep(randInt(3_000, 8_000));
         await channel.send(`<@${member.id}> ${prompt}`);
       } catch (err) {
         logger.warn({ err, guildId: guild.id }, "Random ping failed");
@@ -719,8 +802,15 @@ function startRandomPingScheduler(client: Client) {
     }
   };
 
-  const intervalMs = 2 * 60 * 60 * 1000;
-  setInterval(schedule, intervalMs);
+  // Randomize interval: 4–8 hours, re-randomized after each run
+  const scheduleNext = () => {
+    const intervalMs = randInt(4 * 60 * 60 * 1000, 8 * 60 * 60 * 1000);
+    setTimeout(async () => {
+      await schedule();
+      scheduleNext();
+    }, intervalMs);
+  };
+  scheduleNext();
 }
 
 // ─── Live counter updater (every 30 s) ───────────────────────────────────────

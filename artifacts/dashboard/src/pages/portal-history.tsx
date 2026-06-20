@@ -78,7 +78,7 @@ export function PortalHistory() {
               <Button
                 variant="outline"
                 size="sm"
-                className="text-red-400 hover:text-red-300 hover:bg-red-500/8 border-red-500/20"
+                className="text-red-400 hover:text-red-300 hover:bg-red-500/10 border-red-500/20"
                 onClick={handleDeleteAll}
                 disabled={deleting === "all"}
               >
@@ -101,7 +101,7 @@ export function PortalHistory() {
         )}
 
         {entries.map((entry) => (
-          <Card key={entry.guildId} className="bg-[#0a0a0a] border-white/8 overflow-hidden">
+          <Card key={entry.guildId} className="bg-[#0a0a0a] border-white/10 overflow-hidden">
             <CardHeader className="py-3 px-4">
               <div className="flex items-center justify-between gap-3">
                 <button
@@ -114,7 +114,7 @@ export function PortalHistory() {
                     <ChevronRight className="w-4 h-4 text-zinc-600 shrink-0" />
                   )}
                   <CardTitle className="text-sm font-medium truncate text-zinc-200">{entry.guildName}</CardTitle>
-                  <Badge variant="secondary" className="text-xs shrink-0 bg-white/5 text-zinc-500 border-white/8">
+                  <Badge variant="secondary" className="text-xs shrink-0 bg-white/5 text-zinc-500 border-white/10">
                     {entry.messageCount} msgs
                   </Badge>
                 </button>
@@ -133,7 +133,7 @@ export function PortalHistory() {
 
             {expanded === entry.guildId && (
               <CardContent className="px-0 pt-0 pb-0">
-                <ScrollArea className="h-72 border-t border-white/6">
+                <ScrollArea className="h-72 border-t border-white/10">
                   <div className="p-4 space-y-3">
                     {entry.messages.length === 0 ? (
                       <p className="text-xs text-zinc-600 text-center py-6">History cleared</p>
@@ -142,7 +142,7 @@ export function PortalHistory() {
                         <div key={i} className={`flex gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                           <div className={`max-w-[80%] rounded-xl px-3 py-2 text-sm leading-relaxed ${
                             msg.role === "user"
-                              ? "bg-white/6 border border-white/8 text-zinc-200 rounded-br-sm"
+                              ? "bg-white/5 border border-white/10 text-zinc-200 rounded-br-sm"
                               : "bg-[#111] border border-white/5 text-zinc-300 rounded-bl-sm"
                           }`}>
                             <p className="text-[10px] font-medium mb-1 text-zinc-600">

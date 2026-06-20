@@ -57,7 +57,7 @@ const MONTH_OPTIONS = [
 
 function SettingCard({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
   return (
-    <Card className="bg-[#0a0a0a] border-white/8">
+    <Card className="bg-[#0a0a0a] border-white/10">
       <CardHeader className="pb-3">
         <CardTitle className="text-sm text-zinc-200">{title}</CardTitle>
         {description && <CardDescription className="text-xs text-zinc-600">{description}</CardDescription>}
@@ -74,7 +74,7 @@ function PillButton({ active, onClick, children }: { active: boolean; onClick: (
       className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${
         active
           ? "bg-white/10 border-white/25 text-zinc-100"
-          : "border-white/8 text-zinc-600 hover:border-white/15 hover:text-zinc-400"
+          : "border-white/10 text-zinc-600 hover:border-white/20 hover:text-zinc-400"
       }`}
     >
       {children}
@@ -237,7 +237,7 @@ export function PortalSettings() {
               {topics.map((t) => (
                 <span
                   key={t}
-                  className="flex items-center gap-1 px-2.5 py-1 text-xs rounded-full bg-white/6 border border-white/12 text-zinc-300"
+                  className="flex items-center gap-1 px-2.5 py-1 text-xs rounded-full bg-white/10 border border-white/10 text-zinc-300"
                 >
                   {t}
                   <button onClick={() => removeTopic(t)} className="hover:text-white ml-0.5">
@@ -269,7 +269,7 @@ export function PortalSettings() {
                 <button
                   key={s}
                   onClick={() => addTopic(s)}
-                  className="px-2 py-0.5 text-xs rounded-full border border-white/8 text-zinc-600 hover:border-white/20 hover:text-zinc-300 transition-colors"
+                  className="px-2 py-0.5 text-xs rounded-full border border-white/10 text-zinc-600 hover:border-white/20 hover:text-zinc-300 transition-colors"
                 >
                   + {s}
                 </button>
@@ -295,8 +295,8 @@ export function PortalSettings() {
                 key={o.value}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border cursor-pointer transition-colors ${
                   vibe === o.value
-                    ? "bg-white/6 border-white/18 text-zinc-200"
-                    : "border-white/6 hover:border-white/12 text-zinc-600"
+                    ? "bg-white/10 border-white/20 text-zinc-200"
+                    : "border-white/10 hover:border-white/15 text-zinc-600"
                 }`}
               >
                 <input

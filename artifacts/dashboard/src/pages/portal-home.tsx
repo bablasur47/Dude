@@ -97,12 +97,12 @@ export function PortalHome() {
       <div className="space-y-4">
 
         {/* Profile card */}
-        <div className="bg-[#0a0a0a] border border-white/8 rounded-xl p-5">
+        <div className="bg-[#0a0a0a] border border-white/10 rounded-xl p-5">
           <div className="flex items-center gap-4">
             {user?.avatarUrl ? (
               <img src={user.avatarUrl} alt="avatar" className="w-13 h-13 rounded-full border border-white/10" />
             ) : (
-              <div className="w-13 h-13 rounded-full bg-white/6 border border-white/10 flex items-center justify-center text-zinc-300 font-bold text-xl">
+              <div className="w-13 h-13 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-zinc-300 font-bold text-xl">
                 {user?.username?.[0]?.toUpperCase()}
               </div>
             )}
@@ -116,7 +116,7 @@ export function PortalHome() {
               </div>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 {user?.relationshipVibe && (
-                  <Badge variant="outline" className="text-xs bg-white/4 text-zinc-400 border-white/10">
+                  <Badge variant="outline" className="text-xs bg-white/5 text-zinc-400 border-white/10">
                     {vibeLabels[user.relationshipVibe] ?? user.relationshipVibe}
                   </Badge>
                 )}
@@ -134,7 +134,7 @@ export function PortalHome() {
           </div>
 
           {!user?.nickname && !user?.relationshipVibe && (
-            <div className="mt-4 flex items-start gap-3 bg-white/3 rounded-lg p-3 border border-white/6">
+            <div className="mt-4 flex items-start gap-3 bg-white/5 rounded-lg p-3 border border-white/10">
               <Sparkles className="w-4 h-4 text-zinc-500 mt-0.5 shrink-0" />
               <p className="text-xs text-zinc-600">
                 Set your nickname and vibe so Priya knows exactly how to talk to you —{" "}
@@ -153,7 +153,7 @@ export function PortalHome() {
             { label: "Servers", value: serverCount.toString() },
             { label: "Last Active", value: timeAgo(lastActive), small: true },
           ].map((s) => (
-            <div key={s.label} className="bg-[#0a0a0a] border border-white/8 rounded-xl p-4 text-center">
+            <div key={s.label} className="bg-[#0a0a0a] border border-white/10 rounded-xl p-4 text-center">
               <div className={`font-bold text-zinc-100 ${s.small ? "text-sm leading-tight" : "text-2xl"}`}>{s.value}</div>
               <div className="text-xs text-zinc-600 mt-0.5">{s.label}</div>
             </div>
@@ -162,7 +162,7 @@ export function PortalHome() {
 
         {/* Per-server activity */}
         {stats && stats.servers.length > 0 && (
-          <Card className="bg-[#0a0a0a] border-white/8">
+          <Card className="bg-[#0a0a0a] border-white/10">
             <CardHeader className="pb-2 pt-4">
               <CardTitle className="text-sm flex items-center gap-2 text-zinc-300">
                 <Server className="w-4 h-4 text-zinc-500" />
@@ -202,7 +202,7 @@ export function PortalHome() {
 
         {/* Last conversation */}
         {lastUserMsg && lastBotMsg && (
-          <Card className="bg-[#0a0a0a] border-white/8">
+          <Card className="bg-[#0a0a0a] border-white/10">
             <CardHeader className="pb-2 pt-4">
               <CardTitle className="text-sm flex items-center gap-2 text-zinc-300">
                 <MessageSquare className="w-4 h-4 text-zinc-500" />
@@ -212,13 +212,13 @@ export function PortalHome() {
             </CardHeader>
             <CardContent className="pb-4 space-y-2">
               <div className="flex justify-end">
-                <div className="max-w-[80%] bg-white/6 border border-white/8 rounded-xl rounded-br-sm px-3 py-2 text-sm">
+                <div className="max-w-[80%] bg-white/5 border border-white/10 rounded-xl rounded-br-sm px-3 py-2 text-sm">
                   <p className="text-[10px] text-zinc-600 mb-1">You</p>
                   <p className="text-zinc-200 line-clamp-2">{lastUserMsg.content}</p>
                 </div>
               </div>
               <div className="flex justify-start">
-                <div className="max-w-[80%] bg-[#111] border border-white/6 rounded-xl rounded-bl-sm px-3 py-2 text-sm">
+                <div className="max-w-[80%] bg-[#111] border border-white/5 rounded-xl rounded-bl-sm px-3 py-2 text-sm">
                   <p className="text-[10px] text-zinc-600 mb-1">Priya</p>
                   <p className="text-zinc-300 line-clamp-2">{lastBotMsg.content}</p>
                 </div>
@@ -255,7 +255,7 @@ export function PortalHome() {
           ].map((item) => (
             <div
               key={item.href}
-              className="bg-[#0a0a0a] border border-white/8 hover:border-white/16 rounded-xl p-4 cursor-pointer transition-colors group"
+              className="bg-[#0a0a0a] border border-white/10 hover:border-white/20 rounded-xl p-4 cursor-pointer transition-colors group"
               onClick={() => setLocation(item.href)}
             >
               <div className="flex items-center gap-2 mb-2">
@@ -280,7 +280,7 @@ export function PortalHome() {
             <Button
               variant="outline"
               size="sm"
-              className="shrink-0 text-red-400 hover:text-red-300 hover:bg-red-500/8 border-red-500/20"
+              className="shrink-0 text-red-400 hover:text-red-300 hover:bg-red-500/10 border-red-500/20"
               onClick={handleResetAll}
               disabled={resetting}
             >

@@ -62,7 +62,7 @@ export function PortalHome() {
   if (loading) {
     return (
       <PortalLayout>
-        <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">Loading your profile...</div>
+        <div className="flex items-center justify-center h-64 text-zinc-600 text-sm">Loading your profile...</div>
       </PortalLayout>
     );
   }
@@ -89,114 +89,103 @@ export function PortalHome() {
   const serverCount = stats?.servers.length ?? 0;
   const lastActive = stats?.servers[0]?.lastMessage ?? null;
 
-  // Get last user message for "last thing you said"
   const lastUserMsg = stats?.recentMessages.find((m) => m.role === "user");
   const lastBotMsg = stats?.recentMessages.find((m) => m.role === "assistant");
 
   return (
     <PortalLayout>
-      <div className="space-y-5">
+      <div className="space-y-4">
 
         {/* Profile card */}
-        <Card className="bg-gradient-to-br from-indigo-500/5 to-background border-indigo-500/20">
-          <CardContent className="pt-5 pb-5">
-            <div className="flex items-center gap-4">
-              {user?.avatarUrl ? (
-                <img src={user.avatarUrl} alt="avatar" className="w-14 h-14 rounded-full border-2 border-indigo-500/30" />
-              ) : (
-                <div className="w-14 h-14 rounded-full bg-indigo-500/20 border-2 border-indigo-500/30 flex items-center justify-center text-indigo-400 font-bold text-xl">
-                  {user?.username?.[0]?.toUpperCase()}
-                </div>
-              )}
-              <div className="flex-1 min-w-0">
-                <div className="font-bold text-lg truncate">
-                  {user?.nickname ? (
-                    <span>{user.nickname} <span className="text-sm text-muted-foreground font-normal">({user?.username})</span></span>
-                  ) : (
-                    user?.username
-                  )}
-                </div>
-                <div className="flex items-center gap-2 mt-1 flex-wrap">
-                  {user?.relationshipVibe && (
-                    <Badge variant="outline" className="text-xs bg-indigo-500/10 text-indigo-400 border-indigo-500/20">
-                      {vibeLabels[user.relationshipVibe] ?? user.relationshipVibe}
-                    </Badge>
-                  )}
-                  {user?.pronouns && (
-                    <Badge variant="outline" className="text-xs">{user.pronouns}</Badge>
-                  )}
-                  {user?.languageStyle === "english" && (
-                    <Badge variant="outline" className="text-xs">English mode</Badge>
-                  )}
-                </div>
-              </div>
-              <Button variant="ghost" size="icon" className="shrink-0 text-muted-foreground" onClick={load}>
-                <RefreshCw className="w-4 h-4" />
-              </Button>
-            </div>
-
-            {!user?.nickname && !user?.relationshipVibe && (
-              <div className="mt-4 flex items-start gap-3 bg-indigo-500/5 rounded-lg p-3 border border-indigo-500/10">
-                <Sparkles className="w-4 h-4 text-indigo-400 mt-0.5 shrink-0" />
-                <p className="text-xs text-muted-foreground">
-                  Set your nickname and vibe so Priya knows exactly how to talk to you —{" "}
-                  <button className="text-indigo-400 hover:underline" onClick={() => setLocation("/portal/settings")}>
-                    go to Settings
-                  </button>.
-                </p>
+        <div className="bg-[#0a0a0a] border border-white/8 rounded-xl p-5">
+          <div className="flex items-center gap-4">
+            {user?.avatarUrl ? (
+              <img src={user.avatarUrl} alt="avatar" className="w-13 h-13 rounded-full border border-white/10" />
+            ) : (
+              <div className="w-13 h-13 rounded-full bg-white/6 border border-white/10 flex items-center justify-center text-zinc-300 font-bold text-xl">
+                {user?.username?.[0]?.toUpperCase()}
               </div>
             )}
-          </CardContent>
-        </Card>
+            <div className="flex-1 min-w-0">
+              <div className="font-bold text-lg text-zinc-100 truncate">
+                {user?.nickname ? (
+                  <span>{user.nickname} <span className="text-sm text-zinc-600 font-normal">({user?.username})</span></span>
+                ) : (
+                  user?.username
+                )}
+              </div>
+              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                {user?.relationshipVibe && (
+                  <Badge variant="outline" className="text-xs bg-white/4 text-zinc-400 border-white/10">
+                    {vibeLabels[user.relationshipVibe] ?? user.relationshipVibe}
+                  </Badge>
+                )}
+                {user?.pronouns && (
+                  <Badge variant="outline" className="text-xs border-white/10 text-zinc-500">{user.pronouns}</Badge>
+                )}
+                {user?.languageStyle === "english" && (
+                  <Badge variant="outline" className="text-xs border-white/10 text-zinc-500">English mode</Badge>
+                )}
+              </div>
+            </div>
+            <Button variant="ghost" size="icon" className="shrink-0 text-zinc-600 hover:text-zinc-300" onClick={load}>
+              <RefreshCw className="w-4 h-4" />
+            </Button>
+          </div>
+
+          {!user?.nickname && !user?.relationshipVibe && (
+            <div className="mt-4 flex items-start gap-3 bg-white/3 rounded-lg p-3 border border-white/6">
+              <Sparkles className="w-4 h-4 text-zinc-500 mt-0.5 shrink-0" />
+              <p className="text-xs text-zinc-600">
+                Set your nickname and vibe so Priya knows exactly how to talk to you —{" "}
+                <button className="text-zinc-400 hover:text-zinc-200 hover:underline" onClick={() => setLocation("/portal/settings")}>
+                  go to Settings
+                </button>.
+              </p>
+            </div>
+          )}
+        </div>
 
         {/* Activity stats row */}
         <div className="grid grid-cols-3 gap-3">
-          <Card className="bg-card/30">
-            <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-indigo-400">{totalMessages}</div>
-              <div className="text-xs text-muted-foreground mt-0.5">Total Messages</div>
-            </CardContent>
-          </Card>
-          <Card className="bg-card/30">
-            <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-indigo-400">{serverCount}</div>
-              <div className="text-xs text-muted-foreground mt-0.5">Servers</div>
-            </CardContent>
-          </Card>
-          <Card className="bg-card/30">
-            <CardContent className="p-4 text-center">
-              <div className="text-sm font-semibold text-indigo-400 leading-tight">{timeAgo(lastActive)}</div>
-              <div className="text-xs text-muted-foreground mt-0.5">Last Active</div>
-            </CardContent>
-          </Card>
+          {[
+            { label: "Total Messages", value: totalMessages.toString() },
+            { label: "Servers", value: serverCount.toString() },
+            { label: "Last Active", value: timeAgo(lastActive), small: true },
+          ].map((s) => (
+            <div key={s.label} className="bg-[#0a0a0a] border border-white/8 rounded-xl p-4 text-center">
+              <div className={`font-bold text-zinc-100 ${s.small ? "text-sm leading-tight" : "text-2xl"}`}>{s.value}</div>
+              <div className="text-xs text-zinc-600 mt-0.5">{s.label}</div>
+            </div>
+          ))}
         </div>
 
         {/* Per-server activity */}
         {stats && stats.servers.length > 0 && (
-          <Card>
+          <Card className="bg-[#0a0a0a] border-white/8">
             <CardHeader className="pb-2 pt-4">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Server className="w-4 h-4 text-indigo-400" />
+              <CardTitle className="text-sm flex items-center gap-2 text-zinc-300">
+                <Server className="w-4 h-4 text-zinc-500" />
                 Activity by Server
               </CardTitle>
             </CardHeader>
             <CardContent className="pb-4">
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {stats.servers.slice(0, 5).map((srv) => {
                   const pct = totalMessages > 0 ? (srv.messageCount / totalMessages) * 100 : 0;
                   return (
                     <div key={srv.guildId}>
                       <div className="flex items-center justify-between text-xs mb-1">
-                        <span className="text-foreground font-medium truncate max-w-[60%]">{srv.guildName}</span>
-                        <div className="flex items-center gap-2 text-muted-foreground shrink-0">
+                        <span className="text-zinc-300 font-medium truncate max-w-[60%]">{srv.guildName}</span>
+                        <div className="flex items-center gap-2 text-zinc-600 shrink-0">
                           <Clock className="w-3 h-3" />
                           {timeAgo(srv.lastMessage)}
-                          <span className="font-medium text-foreground">{srv.messageCount}</span>
+                          <span className="font-medium text-zinc-400">{srv.messageCount}</span>
                         </div>
                       </div>
-                      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                      <div className="h-1 bg-white/5 rounded-full overflow-hidden">
                         <div
-                          className="h-full bg-indigo-500/60 rounded-full transition-all"
+                          className="h-full bg-zinc-400/50 rounded-full transition-all"
                           style={{ width: `${Math.max(pct, 2)}%` }}
                         />
                       </div>
@@ -204,41 +193,39 @@ export function PortalHome() {
                   );
                 })}
                 {stats.servers.length > 5 && (
-                  <p className="text-xs text-muted-foreground text-center pt-1">
-                    +{stats.servers.length - 5} more servers
-                  </p>
+                  <p className="text-xs text-zinc-600 text-center pt-1">+{stats.servers.length - 5} more servers</p>
                 )}
               </div>
             </CardContent>
           </Card>
         )}
 
-        {/* Recent conversation */}
+        {/* Last conversation */}
         {lastUserMsg && lastBotMsg && (
-          <Card>
+          <Card className="bg-[#0a0a0a] border-white/8">
             <CardHeader className="pb-2 pt-4">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <MessageSquare className="w-4 h-4 text-indigo-400" />
+              <CardTitle className="text-sm flex items-center gap-2 text-zinc-300">
+                <MessageSquare className="w-4 h-4 text-zinc-500" />
                 Last Conversation
-                <span className="text-xs text-muted-foreground font-normal ml-auto">{lastUserMsg.guildName}</span>
+                <span className="text-xs text-zinc-600 font-normal ml-auto">{lastUserMsg.guildName}</span>
               </CardTitle>
             </CardHeader>
             <CardContent className="pb-4 space-y-2">
               <div className="flex justify-end">
-                <div className="max-w-[80%] bg-indigo-600/20 rounded-xl rounded-br-sm px-3 py-2 text-sm">
-                  <p className="text-[10px] text-muted-foreground mb-1">You</p>
-                  <p className="line-clamp-2">{lastUserMsg.content}</p>
+                <div className="max-w-[80%] bg-white/6 border border-white/8 rounded-xl rounded-br-sm px-3 py-2 text-sm">
+                  <p className="text-[10px] text-zinc-600 mb-1">You</p>
+                  <p className="text-zinc-200 line-clamp-2">{lastUserMsg.content}</p>
                 </div>
               </div>
               <div className="flex justify-start">
-                <div className="max-w-[80%] bg-muted rounded-xl rounded-bl-sm px-3 py-2 text-sm">
-                  <p className="text-[10px] text-muted-foreground mb-1">Priya</p>
-                  <p className="line-clamp-2">{lastBotMsg.content}</p>
+                <div className="max-w-[80%] bg-[#111] border border-white/6 rounded-xl rounded-bl-sm px-3 py-2 text-sm">
+                  <p className="text-[10px] text-zinc-600 mb-1">Priya</p>
+                  <p className="text-zinc-300 line-clamp-2">{lastBotMsg.content}</p>
                 </div>
               </div>
               <div className="flex justify-end pt-1">
                 <button
-                  className="text-xs text-indigo-400 hover:underline flex items-center gap-1"
+                  className="text-xs text-zinc-500 hover:text-zinc-300 flex items-center gap-1 transition-colors"
                   onClick={() => setLocation("/portal/history")}
                 >
                   See full history <ArrowRight className="w-3 h-3" />
@@ -250,63 +237,57 @@ export function PortalHome() {
 
         {/* Quick actions */}
         <div className="grid gap-3 sm:grid-cols-2">
-          <Card
-            className="cursor-pointer hover:border-indigo-500/40 transition-colors group"
-            onClick={() => setLocation("/portal/history")}
-          >
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <MessageSquare className="w-4 h-4 text-indigo-400" />
-                Chat History
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <p className="text-xs text-muted-foreground">View or reset your conversations with Priya across all servers.</p>
-              <div className="mt-3 flex items-center gap-1 text-xs text-indigo-400 group-hover:gap-2 transition-all">
-                View history <ArrowRight className="w-3 h-3" />
+          {[
+            {
+              icon: MessageSquare,
+              title: "Chat History",
+              desc: "View or reset your conversations with Priya across all servers.",
+              cta: "View history",
+              href: "/portal/history",
+            },
+            {
+              icon: Settings,
+              title: "Preferences",
+              desc: "Set your nickname, pronouns, vibe and language style.",
+              cta: "Edit settings",
+              href: "/portal/settings",
+            },
+          ].map((item) => (
+            <div
+              key={item.href}
+              className="bg-[#0a0a0a] border border-white/8 hover:border-white/16 rounded-xl p-4 cursor-pointer transition-colors group"
+              onClick={() => setLocation(item.href)}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <item.icon className="w-4 h-4 text-zinc-500" />
+                <span className="text-sm font-medium text-zinc-200">{item.title}</span>
               </div>
-            </CardContent>
-          </Card>
-
-          <Card
-            className="cursor-pointer hover:border-indigo-500/40 transition-colors group"
-            onClick={() => setLocation("/portal/settings")}
-          >
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Settings className="w-4 h-4 text-indigo-400" />
-                Preferences
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <p className="text-xs text-muted-foreground">Set your nickname, pronouns, vibe and language style.</p>
-              <div className="mt-3 flex items-center gap-1 text-xs text-indigo-400 group-hover:gap-2 transition-all">
-                Edit settings <ArrowRight className="w-3 h-3" />
+              <p className="text-xs text-zinc-600">{item.desc}</p>
+              <div className="mt-3 flex items-center gap-1 text-xs text-zinc-500 group-hover:text-zinc-300 group-hover:gap-2 transition-all">
+                {item.cta} <ArrowRight className="w-3 h-3" />
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          ))}
         </div>
 
         {/* Danger zone */}
         {totalMessages > 0 && (
-          <Card className="border-destructive/20">
-            <CardContent className="p-4 flex items-center justify-between gap-4">
-              <div>
-                <p className="text-sm font-medium">Reset All History</p>
-                <p className="text-xs text-muted-foreground">Delete all your conversations with Priya across every server.</p>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/20"
-                onClick={handleResetAll}
-                disabled={resetting}
-              >
-                <Trash2 className="w-3.5 h-3.5 mr-1.5" />
-                {resetting ? "Clearing..." : "Reset All"}
-              </Button>
-            </CardContent>
-          </Card>
+          <div className="border border-red-500/15 rounded-xl p-4 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-zinc-300">Reset All History</p>
+              <p className="text-xs text-zinc-600 mt-0.5">Delete all your conversations with Priya across every server.</p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0 text-red-400 hover:text-red-300 hover:bg-red-500/8 border-red-500/20"
+              onClick={handleResetAll}
+              disabled={resetting}
+            >
+              <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+              {resetting ? "Clearing..." : "Reset All"}
+            </Button>
+          </div>
         )}
 
       </div>

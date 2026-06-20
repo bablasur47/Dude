@@ -51,37 +51,57 @@
 
 :root, .dark {
   color-scheme: dark;
-  --background: 240 10% 4%;
-  --foreground: 0 0% 95%;
-  --card: 240 10% 6%;
-  --card-foreground: 0 0% 95%;
-  --card-border: 240 10% 12%;
-  --popover: 240 10% 6%;
-  --popover-foreground: 0 0% 95%;
-  --popover-border: 240 10% 12%;
-  --primary: 262 80% 65%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 240 10% 12%;
-  --secondary-foreground: 0 0% 95%;
-  --muted: 240 10% 12%;
-  --muted-foreground: 240 5% 65%;
-  --accent: 262 80% 65%;
-  --accent-foreground: 0 0% 100%;
-  --destructive: 0 84% 60%;
+
+  /* ── Base surfaces ─── */
+  --background: 0 0% 0%;
+  --foreground: 0 0% 93%;
+
+  /* ── Cards ─── */
+  --card: 0 0% 5%;
+  --card-foreground: 0 0% 93%;
+  --card-border: 0 0% 13%;
+
+  /* ── Popovers ─── */
+  --popover: 0 0% 5%;
+  --popover-foreground: 0 0% 93%;
+  --popover-border: 0 0% 13%;
+
+  /* ── Primary — silver/platinum ─── */
+  --primary: 0 0% 72%;
+  --primary-foreground: 0 0% 4%;
+
+  /* ── Secondary ─── */
+  --secondary: 0 0% 10%;
+  --secondary-foreground: 0 0% 82%;
+
+  /* ── Muted ─── */
+  --muted: 0 0% 9%;
+  --muted-foreground: 0 0% 46%;
+
+  /* ── Accent — silver ─── */
+  --accent: 0 0% 72%;
+  --accent-foreground: 0 0% 4%;
+
+  /* ── Destructive ─── */
+  --destructive: 0 72% 51%;
   --destructive-foreground: 0 0% 95%;
-  --border: 240 10% 12%;
-  --input: 240 10% 12%;
-  --ring: 262 80% 65%;
+
+  /* ── Inputs & borders ─── */
+  --border: 0 0% 13%;
+  --input: 0 0% 8%;
+  --ring: 0 0% 58%;
+
   --radius: 0.5rem;
 
-  --sidebar-background: 240 10% 5%;
-  --sidebar-foreground: 240 5% 85%;
-  --sidebar-primary: 262 80% 65%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 240 10% 12%;
-  --sidebar-accent-foreground: 240 5% 95%;
-  --sidebar-border: 240 10% 12%;
-  --sidebar-ring: 262 80% 65%;
+  /* ── Sidebar ─── */
+  --sidebar-background: 0 0% 2%;
+  --sidebar-foreground: 0 0% 78%;
+  --sidebar-primary: 0 0% 72%;
+  --sidebar-primary-foreground: 0 0% 4%;
+  --sidebar-accent: 0 0% 10%;
+  --sidebar-accent-foreground: 0 0% 90%;
+  --sidebar-border: 0 0% 12%;
+  --sidebar-ring: 0 0% 58%;
 
   --app-font-sans: 'Inter', sans-serif;
   --app-font-serif: Georgia, serif;
@@ -96,3 +116,9 @@
     @apply bg-background text-foreground font-sans antialiased;
   }
 }
+
+/* ── Scrollbar ─── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: hsl(0 0% 20%); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: hsl(0 0% 30%); }

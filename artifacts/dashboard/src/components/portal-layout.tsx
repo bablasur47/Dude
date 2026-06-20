@@ -25,34 +25,34 @@ export function PortalLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen bg-background text-foreground">
       {/* Desktop sidebar */}
-      <aside className="hidden md:flex w-60 border-r border-border/50 bg-card/20 flex-col shrink-0">
-        <div className="h-16 flex items-center px-5 border-b border-border/50 gap-3">
-          <div className="w-8 h-8 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-bold text-sm">
+      <aside className="hidden md:flex w-60 border-r border-white/8 bg-[#020202] flex-col shrink-0">
+        <div className="h-16 flex items-center px-5 border-b border-white/8 gap-3">
+          <div className="w-8 h-8 rounded-full bg-white/6 border border-white/10 flex items-center justify-center text-zinc-300 font-bold text-sm">
             P
           </div>
           <div>
-            <div className="font-semibold text-sm leading-tight">Priya Portal</div>
-            <div className="text-[10px] text-muted-foreground uppercase tracking-widest">Your space</div>
+            <div className="font-semibold text-sm leading-tight text-zinc-100">Priya Portal</div>
+            <div className="text-[10px] text-zinc-600 uppercase tracking-widest">Your space</div>
           </div>
         </div>
-        <nav className="flex-1 p-3 space-y-1">
+        <nav className="flex-1 p-3 space-y-0.5">
           {navItems.map((item) => (
             <Link key={item.href} href={item.href}>
               <span className={`flex items-center gap-3 px-3 py-2 text-sm rounded-md transition-all cursor-pointer ${
                 isActive(item.href)
-                  ? "bg-indigo-500/10 text-indigo-400 font-medium"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  ? "bg-white/8 text-zinc-100 font-medium border-l-2 border-zinc-400 pl-[10px]"
+                  : "text-zinc-500 hover:bg-white/4 hover:text-zinc-300"
               }`}>
-                <item.icon className="w-4 h-4" />
+                <item.icon className={`w-4 h-4 shrink-0 ${isActive(item.href) ? "text-zinc-200" : "text-zinc-600"}`} />
                 {item.label}
               </span>
             </Link>
           ))}
         </nav>
-        <div className="p-3 border-t border-border/50">
+        <div className="p-3 border-t border-white/8">
           <Button
             variant="ghost"
-            className="w-full justify-start text-muted-foreground hover:text-destructive hover:bg-destructive/10 text-sm"
+            className="w-full justify-start text-zinc-600 hover:text-red-400 hover:bg-red-500/8 text-sm"
             onClick={handleLogout}
           >
             <LogOut className="w-4 h-4 mr-2" />
@@ -64,12 +64,12 @@ export function PortalLayout({ children }: { children: ReactNode }) {
       {/* Main */}
       <main className="flex-1 flex flex-col min-w-0">
         {/* Mobile header */}
-        <div className="md:hidden h-14 border-b border-border/50 flex items-center justify-between px-4 bg-background/80 backdrop-blur sticky top-0 z-10">
+        <div className="md:hidden h-14 border-b border-white/8 flex items-center justify-between px-4 bg-black/90 backdrop-blur sticky top-0 z-10">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-bold text-xs">P</div>
-            <span className="font-semibold text-sm">Priya Portal</span>
+            <div className="w-7 h-7 rounded-full bg-white/6 border border-white/10 flex items-center justify-center text-zinc-300 font-bold text-xs">P</div>
+            <span className="font-semibold text-sm text-zinc-100">Priya Portal</span>
           </div>
-          <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive" onClick={handleLogout}>
+          <Button variant="ghost" size="icon" className="text-zinc-600 hover:text-red-400" onClick={handleLogout}>
             <LogOut className="w-4 h-4" />
           </Button>
         </div>
@@ -80,11 +80,11 @@ export function PortalLayout({ children }: { children: ReactNode }) {
       </main>
 
       {/* Mobile bottom nav */}
-      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-background/95 backdrop-blur border-t border-border/50 z-20 flex">
+      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-black/95 backdrop-blur border-t border-white/8 z-20 flex">
         {navItems.map((item) => (
           <Link key={item.href} href={item.href} className="flex-1">
             <span className={`flex flex-col items-center justify-center gap-1 py-2.5 text-[10px] font-medium transition-colors ${
-              isActive(item.href) ? "text-indigo-400" : "text-muted-foreground"
+              isActive(item.href) ? "text-zinc-200" : "text-zinc-600"
             }`}>
               <item.icon className="w-5 h-5" />
               {item.label}

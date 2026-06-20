@@ -4,7 +4,6 @@ import { useLogout } from "@workspace/api-client-react";
 import { Activity, Server, Users, Key, BrainCircuit, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-// Paths relative to the wouter base (/dashboard) — no nest, flat routes
 const navItems = [
   { href: "/overview", label: "Overview", icon: Activity },
   { href: "/servers", label: "Servers", icon: Server },
@@ -29,38 +28,38 @@ export function DashboardLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="flex min-h-screen bg-background text-foreground selection:bg-primary/30">
+    <div className="flex min-h-screen bg-background text-foreground selection:bg-white/10">
       {/* ── Desktop sidebar ── */}
-      <aside className="hidden md:flex w-64 border-r border-border/50 bg-card/30 backdrop-blur flex-col shrink-0">
-        <div className="h-16 flex items-center px-6 border-b border-border/50 bg-background/50">
+      <aside className="hidden md:flex w-60 border-r border-white/8 bg-[#020202] flex-col shrink-0">
+        <div className="h-16 flex items-center px-5 border-b border-white/8">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded bg-primary/20 flex items-center justify-center border border-primary/30 text-primary font-bold">
+            <div className="w-8 h-8 rounded bg-white/8 flex items-center justify-center border border-white/12 text-zinc-200 font-bold text-sm">
               P
             </div>
             <div className="flex flex-col">
-              <span className="font-semibold leading-tight tracking-tight text-sm">Priya System</span>
-              <span className="text-[10px] text-muted-foreground uppercase tracking-widest">Mission Control</span>
+              <span className="font-semibold leading-tight tracking-tight text-sm text-zinc-100">Priya System</span>
+              <span className="text-[10px] text-zinc-600 uppercase tracking-widest">Mission Control</span>
             </div>
           </div>
         </div>
-        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+        <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
           {navItems.map((item) => (
             <Link key={item.href} href={item.href}>
-              <span className={`flex items-center gap-3 px-3 py-2 text-sm rounded-md transition-all duration-200 cursor-pointer ${
+              <span className={`flex items-center gap-3 px-3 py-2 text-sm rounded-md transition-all duration-150 cursor-pointer ${
                 isActive(item.href)
-                  ? "bg-primary/10 text-primary font-medium"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  ? "bg-white/8 text-zinc-100 font-medium border-l-2 border-zinc-300 pl-[10px]"
+                  : "text-zinc-500 hover:bg-white/4 hover:text-zinc-300"
               }`}>
-                <item.icon className={`w-4 h-4 ${isActive(item.href) ? "text-primary" : ""}`} />
+                <item.icon className={`w-4 h-4 shrink-0 ${isActive(item.href) ? "text-zinc-200" : "text-zinc-600"}`} />
                 {item.label}
               </span>
             </Link>
           ))}
         </nav>
-        <div className="p-4 border-t border-border/50 bg-background/50">
+        <div className="p-3 border-t border-white/8">
           <Button
             variant="ghost"
-            className="w-full justify-start text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+            className="w-full justify-start text-zinc-600 hover:text-red-400 hover:bg-red-500/8 text-sm"
             onClick={() => logoutMutation.mutate()}
           >
             <LogOut className="w-4 h-4 mr-2" />
@@ -72,17 +71,17 @@ export function DashboardLayout({ children }: { children: ReactNode }) {
       {/* ── Main content ── */}
       <main className="flex-1 flex flex-col min-w-0">
         {/* Mobile top bar */}
-        <div className="md:hidden h-14 border-b border-border/50 flex items-center justify-between px-4 bg-background/80 backdrop-blur sticky top-0 z-10">
+        <div className="md:hidden h-14 border-b border-white/8 flex items-center justify-between px-4 bg-black/90 backdrop-blur sticky top-0 z-10">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded bg-primary/20 flex items-center justify-center border border-primary/30 text-primary font-bold text-sm">
+            <div className="w-7 h-7 rounded bg-white/8 flex items-center justify-center border border-white/12 text-zinc-200 font-bold text-xs">
               P
             </div>
-            <span className="font-semibold text-sm">Priya Control</span>
+            <span className="font-semibold text-sm text-zinc-100">Priya Control</span>
           </div>
           <Button
             variant="ghost"
             size="icon"
-            className="text-muted-foreground hover:text-destructive"
+            className="text-zinc-600 hover:text-red-400"
             onClick={() => logoutMutation.mutate()}
           >
             <LogOut className="w-4 h-4" />
@@ -98,11 +97,11 @@ export function DashboardLayout({ children }: { children: ReactNode }) {
       </main>
 
       {/* ── Mobile bottom navigation bar ── */}
-      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-background/95 backdrop-blur border-t border-border/50 z-20 flex">
+      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-black/95 backdrop-blur border-t border-white/8 z-20 flex">
         {navItems.map((item) => (
           <Link key={item.href} href={item.href} className="flex-1">
             <span className={`flex flex-col items-center justify-center gap-1 py-2.5 text-[10px] font-medium transition-colors ${
-              isActive(item.href) ? "text-primary" : "text-muted-foreground"
+              isActive(item.href) ? "text-zinc-200" : "text-zinc-600"
             }`}>
               <item.icon className="w-5 h-5" />
               {item.label}

@@ -61,16 +61,16 @@ export function PortalHistory() {
 
   return (
     <PortalLayout>
-      <div className="space-y-5">
+      <div className="space-y-4">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-xl font-bold">Chat History</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
+            <h1 className="text-xl font-bold text-zinc-100">Chat History</h1>
+            <p className="text-sm text-zinc-600 mt-0.5">
               {totalMessages} messages across {entries.length} {entries.length === 1 ? "server" : "servers"}
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+            <Button variant="outline" size="sm" onClick={load} disabled={loading} className="border-white/10 text-zinc-400 hover:text-zinc-200">
               <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`} />
               Refresh
             </Button>
@@ -78,7 +78,7 @@ export function PortalHistory() {
               <Button
                 variant="outline"
                 size="sm"
-                className="text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/20"
+                className="text-red-400 hover:text-red-300 hover:bg-red-500/8 border-red-500/20"
                 onClick={handleDeleteAll}
                 disabled={deleting === "all"}
               >
@@ -90,18 +90,18 @@ export function PortalHistory() {
         </div>
 
         {loading && (
-          <div className="text-center text-muted-foreground text-sm py-16">Loading history...</div>
+          <div className="text-center text-zinc-600 text-sm py-16">Loading history...</div>
         )}
 
         {!loading && entries.length === 0 && (
-          <div className="text-center text-muted-foreground py-16">
-            <MessageSquare className="w-8 h-8 mx-auto mb-3 opacity-40" />
+          <div className="text-center text-zinc-600 py-16">
+            <MessageSquare className="w-8 h-8 mx-auto mb-3 opacity-30" />
             <p className="text-sm">No chat history yet. Go talk to Priya!</p>
           </div>
         )}
 
         {entries.map((entry) => (
-          <Card key={entry.guildId} className="overflow-hidden">
+          <Card key={entry.guildId} className="bg-[#0a0a0a] border-white/8 overflow-hidden">
             <CardHeader className="py-3 px-4">
               <div className="flex items-center justify-between gap-3">
                 <button
@@ -109,17 +109,19 @@ export function PortalHistory() {
                   onClick={() => setExpanded(expanded === entry.guildId ? null : entry.guildId)}
                 >
                   {expanded === entry.guildId ? (
-                    <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <ChevronDown className="w-4 h-4 text-zinc-600 shrink-0" />
                   ) : (
-                    <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <ChevronRight className="w-4 h-4 text-zinc-600 shrink-0" />
                   )}
-                  <CardTitle className="text-sm font-medium truncate">{entry.guildName}</CardTitle>
-                  <Badge variant="secondary" className="text-xs shrink-0">{entry.messageCount} msgs</Badge>
+                  <CardTitle className="text-sm font-medium truncate text-zinc-200">{entry.guildName}</CardTitle>
+                  <Badge variant="secondary" className="text-xs shrink-0 bg-white/5 text-zinc-500 border-white/8">
+                    {entry.messageCount} msgs
+                  </Badge>
                 </button>
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0"
+                  className="h-7 w-7 text-zinc-600 hover:text-red-400 shrink-0"
                   onClick={() => handleDeleteGuild(entry.guildId, entry.guildName)}
                   disabled={deleting === entry.guildId}
                   title="Reset history in this server"
@@ -131,19 +133,19 @@ export function PortalHistory() {
 
             {expanded === entry.guildId && (
               <CardContent className="px-0 pt-0 pb-0">
-                <ScrollArea className="h-72 border-t border-border/50">
+                <ScrollArea className="h-72 border-t border-white/6">
                   <div className="p-4 space-y-3">
                     {entry.messages.length === 0 ? (
-                      <p className="text-xs text-muted-foreground text-center py-6">History cleared</p>
+                      <p className="text-xs text-zinc-600 text-center py-6">History cleared</p>
                     ) : (
                       entry.messages.map((msg, i) => (
                         <div key={i} className={`flex gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                           <div className={`max-w-[80%] rounded-xl px-3 py-2 text-sm leading-relaxed ${
                             msg.role === "user"
-                              ? "bg-indigo-600/20 text-foreground rounded-br-sm"
-                              : "bg-muted text-foreground rounded-bl-sm"
+                              ? "bg-white/6 border border-white/8 text-zinc-200 rounded-br-sm"
+                              : "bg-[#111] border border-white/5 text-zinc-300 rounded-bl-sm"
                           }`}>
-                            <p className="text-[10px] font-medium mb-1 text-muted-foreground">
+                            <p className="text-[10px] font-medium mb-1 text-zinc-600">
                               {msg.role === "user" ? "You" : "Priya"}
                             </p>
                             {msg.content}

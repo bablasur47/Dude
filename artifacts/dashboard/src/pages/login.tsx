@@ -3,7 +3,6 @@ import { useLogin } from "@workspace/api-client-react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Terminal } from "lucide-react";
 
@@ -11,7 +10,7 @@ export function Login() {
   const [password, setPassword] = useState("");
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  
+
   const loginMutation = useLogin({
     mutation: {
       onSuccess: (data) => {
@@ -43,39 +42,45 @@ export function Login() {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-background p-4">
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-primary/10 via-background to-background" />
-      <Card className="w-full max-w-sm relative bg-card/80 backdrop-blur border-primary/20 shadow-2xl shadow-primary/5">
-        <CardHeader className="space-y-4 text-center">
-          <div className="mx-auto w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center border border-primary/20">
-            <Terminal className="w-6 h-6 text-primary" />
+    <div className="min-h-screen w-full flex items-center justify-center bg-black p-4">
+      <div className="w-full max-w-sm">
+        {/* Logo mark */}
+        <div className="flex flex-col items-center mb-8 gap-4">
+          <div className="w-14 h-14 rounded-xl bg-white/5 flex items-center justify-center border border-white/10">
+            <Terminal className="w-7 h-7 text-zinc-300" />
           </div>
-          <div className="space-y-2">
-            <CardTitle className="text-2xl font-bold tracking-tight">Mission Control</CardTitle>
-            <CardDescription>Authenticate to access Priya's core systems.</CardDescription>
+          <div className="text-center">
+            <h1 className="text-2xl font-bold tracking-tight text-zinc-100">Mission Control</h1>
+            <p className="text-sm text-zinc-600 mt-1">Authenticate to access Priya's systems.</p>
           </div>
-        </CardHeader>
-        <CardContent>
+        </div>
+
+        {/* Form card */}
+        <div className="bg-[#0a0a0a] border border-white/10 rounded-xl p-6 shadow-2xl">
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">Access Code</label>
               <Input
                 type="password"
-                placeholder="Access Code"
+                placeholder="Enter password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="bg-background/50 border-white/10 focus-visible:ring-primary"
+                className="bg-black border-white/10 focus-visible:ring-zinc-500 text-zinc-100 placeholder:text-zinc-700"
+                autoFocus
               />
             </div>
-            <Button 
-              type="submit" 
-              className="w-full font-semibold"
+            <Button
+              type="submit"
+              className="w-full font-semibold bg-zinc-200 text-black hover:bg-white transition-colors"
               disabled={loginMutation.isPending || !password}
             >
               {loginMutation.isPending ? "Authenticating..." : "Enter Dashboard"}
             </Button>
           </form>
-        </CardContent>
-      </Card>
+        </div>
+
+        <p className="text-center text-xs text-zinc-800 mt-6">Priya System v2</p>
+      </div>
     </div>
   );
 }

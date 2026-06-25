@@ -5,7 +5,7 @@
   "scripts": {
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
     "build:render": "pnpm --filter @workspace/dashboard run build && pnpm --filter @workspace/api-server run build",
-    "install:render": "pnpm install --allow-build esbuild --allow-build @swc/core --allow-build msw --allow-build unrs-resolver",
+    "install:render": "pnpm install --no-frozen-lockfile --allow-build esbuild --allow-build @swc/core --allow-build msw --allow-build unrs-resolver",
     "start:render": "node artifacts/api-server/dist/index.mjs",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
